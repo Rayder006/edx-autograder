@@ -74,10 +74,10 @@ def lti_grade_endpoint(request):
     print(f"ID: {sourcedid}")
     print("Iniciando container Docker...\n")
     
-    # simulação de teste com json temporário
+    # simulação de teste com json temporário (aqui colocamos o nosso json depois de criá-lo)
     casos_de_teste = [
         "2\n3\n",    # Teste 1: deve dar 5
-        "10\n-5\n"   # Teste 2: deve dar 5
+        "10\n5\n"   # Teste 2: deve dar 15
     ]
     
     # Chama o motor (Isso vai bloquear o Django até o Docker terminar, podemos usar Celery + Redis)

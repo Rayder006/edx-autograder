@@ -4,7 +4,7 @@ os.environ['OAUTHLIB_INSECURE_TRANSPORT'] = '1'
 import requests
 from requests_oauthlib import OAuth1
 
-LTI_KEY = 'minha_chave_edx_upp' # chave lti reconhecida
+LTI_KEY = 'minha_chave_edx_usp' # chave lti reconhecida
 LTI_SECRET = 'meu_segredo_super_seguro' # segredo para assinatura HMAC
 URL = 'http://127.0.0.1:8000/lti/avaliacao/'
 

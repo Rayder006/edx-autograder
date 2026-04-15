@@ -1,3 +1,4 @@
+# Este arquivo é legado, preciso apagar
 import json
 import os
 
