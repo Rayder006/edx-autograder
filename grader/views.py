@@ -14,6 +14,8 @@ def escape(text):
     """Codificação RFC 3986 (O padrão exigido pela matemática do OAuth 1.0)"""
     return urllib.parse.quote(str(text), safe='~')
 
+
+# View que recebe a Request LTI, decriptografa o HMAC (Usando a LTI_KEY e LTI_SECRET que precisamos definir) e envia para o runner.py rodar
 @csrf_exempt
 @require_POST
 def lti_grade_endpoint(request):
@@ -78,7 +80,7 @@ def lti_grade_endpoint(request):
         "10\n-5\n"   # Teste 2: deve dar 5
     ]
     
-    # Chama o motor (Isso vai bloquear o Django até o Docker terminar)
+    # Chama o motor (Isso vai bloquear o Django até o Docker terminar, podemos usar Celery + Redis)
     resultados_docker = avaliar_no_docker(student_code, casos_de_teste)
     
     print("=== RESULTADOS DA EXECUÇÃO ===")
