@@ -1,3 +1,4 @@
+from .runner import avaliar_no_docker
 from django.http import HttpResponse
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_POST
@@ -64,6 +65,7 @@ def lti_grade_endpoint(request):
     if not hmac.compare_digest(expected_signature.encode(), received_signature.encode()):
         return HttpResponse("Acesso Negado: As assinaturas HMAC não batem.", status=403)
 
+
     # ==========================================
     # SE PASSOU PELO HASH, É O EDX DE VERDADE!
     # ==========================================
@@ -73,6 +75,21 @@ def lti_grade_endpoint(request):
     
     print("--- NOVA SUBMISSÃO AUTENTICADA ---")
     print(f"ID: {sourcedid}")
-    print(f"Código:\n{student_code}\n----------------------------------\n")
+    print("Iniciando container Docker...\n")
     
-    return HttpResponse("Submissão LTI recebida e autenticada com sucesso.", status=200)
+    # Vamos simular os casos de teste do nosso JSON imaginário
+    casos_de_teste = [
+        "2\n3\n",    # Teste 1: deve dar 5
+        "10\n-5\n"   # Teste 2: deve dar 5
+    ]
+    
+    # Chama o motor! (Isso vai bloquear o Django até o Docker terminar)
+    resultados_docker = avaliar_no_docker(student_code, casos_de_teste)
+    
+    print("=== RESULTADOS DA EXECUÇÃO ===")
+    for i, res in enumerate(resultados_docker):
+        print(f"Caso de Teste {i+1}:")
+        print(f"Saída do Aluno: {res}")
+        print("-" * 30)
+    
+    return HttpResponse("Submissão LTI recebida e executada com sucesso.", status=200)
