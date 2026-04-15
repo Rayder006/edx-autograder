@@ -28,25 +28,25 @@ def lti_grade_endpoint(request):
     if not received_signature:
         return HttpResponse("Assinatura ausente.", status=403)
 
-    # 1. Coleta todos os parâmetros do Request, EXCETO a própria assinatura
+    # Coleta os parâmetros do Request
     params = [(k, v) for k, v in request.POST.items() if k != 'oauth_signature']
     
-    # 2. Codifica e Ordena os parâmetros (Regra de ouro do OAuth)
+    # Codifica e Ordena os parâmetros
     encoded_params = [(escape(k), escape(v)) for k, v in params]
     encoded_params.sort()  # Ordena alfabeticamente pela chave
     param_string = "&".join([f"{k}={v}" for k, v in encoded_params])
     
-    # 3. Monta a Base String
+    # Monta a Base String
     base_string = "&".join([
         request.method.upper(),
         escape(uri.split('?')[0].lower()), # Garante que a URL base esteja limpa
         escape(param_string)
     ])
     
-    # 4. A Chave de Assinatura (Consumer Secret + "&" + Token Secret que no LTI é vazio)
+    # A Chave de Assinatura (Consumer Secret + "&" + Token Secret que no LTI é vazio)
     signing_key = escape(LTI_SECRET) + "&"
     
-    # 5. O Coração: Hash HMAC-SHA1
+    # Hash HMAC-SHA1
     hashed = hmac.new(
         signing_key.encode('utf-8'),
         base_string.encode('utf-8'),
@@ -57,18 +57,13 @@ def lti_grade_endpoint(request):
     expected_signature = base64.b64encode(hashed.digest()).decode('utf-8')
 
     print("\n=== MOTOR CRIPTOGRÁFICO RAIZ ===")
-    print(f"Assinatura do Míssil (EdX) : {received_signature}")
+    print(f"Assinatura do Request (EdX) : {received_signature}")
     print(f"Assinatura Calculada AQUI  : {expected_signature}")
     print("================================\n")
 
     # compare_digest evita ataques de temporização do lado do servidor
     if not hmac.compare_digest(expected_signature.encode(), received_signature.encode()):
         return HttpResponse("Acesso Negado: As assinaturas HMAC não batem.", status=403)
-
-
-    # ==========================================
-    # SE PASSOU PELO HASH, É O EDX DE VERDADE!
-    # ==========================================
     
     student_code = request.POST.get('custom_student_code', '')
     sourcedid = request.POST.get('lis_result_sourcedid')
@@ -77,13 +72,13 @@ def lti_grade_endpoint(request):
     print(f"ID: {sourcedid}")
     print("Iniciando container Docker...\n")
     
-    # Vamos simular os casos de teste do nosso JSON imaginário
+    # simulação de teste com json temporário
     casos_de_teste = [
         "2\n3\n",    # Teste 1: deve dar 5
         "10\n-5\n"   # Teste 2: deve dar 5
     ]
     
-    # Chama o motor! (Isso vai bloquear o Django até o Docker terminar)
+    # Chama o motor (Isso vai bloquear o Django até o Docker terminar)
     resultados_docker = avaliar_no_docker(student_code, casos_de_teste)
     
     print("=== RESULTADOS DA EXECUÇÃO ===")
