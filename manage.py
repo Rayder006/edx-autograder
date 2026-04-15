@@ -3,6 +3,8 @@
 import os
 import sys
 
+# INJEÇÃO DIRETA NO PONTO ZERO (Bypassa o cache de módulos do Python)
+os.environ['OAUTHLIB_INSECURE_TRANSPORT'] = '1'
 
 def main():
     """Run administrative tasks."""

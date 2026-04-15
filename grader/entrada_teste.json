@@ -1,0 +1,17 @@
+{   
+  "exercicio_soma": {
+    "timeout": 5,
+    "test_cases": [
+      {
+        "input": "2\n3\n",
+        "expected": "5",
+        "weight": 0.5
+      },
+      {
+        "input": "10\n-2\n",
+        "expected": "8",
+        "weight": 0.5
+      }
+    ]
+  }
+}
