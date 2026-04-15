@@ -21,13 +21,13 @@ def avaliar_no_docker(codigo_aluno, lista_inputs):
         # roda o container (uma vez para cada caso de teste)
         for input_str in lista_inputs:
             try:
-                # O comando echo injeta o input direto no stdin do python
+                # o comando echo injeta o input direto no stdin do python
                 comando = f"sh -c 'echo \"{input_str}\" | python /app/solution.py'"
                 
                 resultado = client.containers.run(
-                    image="python:3.13-alpine", # Imagem minúscula e rápida
+                    image="python:3.13-alpine", # Imagem rápida
                     command=comando,
-                    volumes={tmpdir: {'bind': '/app', 'mode': 'ro'}}, # 'ro' = Read Only
+                    volumes={tmpdir: {'bind': '/app', 'mode': 'ro'}}, # Read Only
                     working_dir="/app",
                     network_disabled=True,      # Sem acesso à internet
                     mem_limit="128m",           # Limite de RAM para não travar o servidor
