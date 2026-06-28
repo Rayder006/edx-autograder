@@ -13,3 +13,4 @@ db.sqlite3
 
 # macOS
 .DS_Store
+.exercicios-coursera/

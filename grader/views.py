@@ -1,4 +1,7 @@
-from .runner import avaliar_no_docker
+from .runner import avaliar_no_docker_com_json
+from django.conf import settings
+import os
+import json
 from django.http import HttpResponse
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_POST
@@ -74,19 +77,57 @@ def lti_grade_endpoint(request):
     print(f"ID: {sourcedid}")
     print("Iniciando container Docker...\n")
     
-    # simulação de teste com json temporário (aqui colocamos o nosso json depois de criá-lo)
-    casos_de_teste = [
-        "2\n3\n",    # Teste 1: deve dar 5
-        "10\n5\n"   # Teste 2: deve dar 15
-    ]
+    # Determina qual exercício avaliar
+    exercise_id = request.POST.get('custom_exercise_id') or request.POST.get('resource_link_id')
+    if not exercise_id:
+        # fallback para testes locais rápidos se não enviado via LTI
+        exercise_id = "week_4_fatorial"
     
-    # Chama o motor (Isso vai bloquear o Django até o Docker terminar, podemos usar Celery + Redis)
-    resultados_docker = avaliar_no_docker(student_code, casos_de_teste)
+    caminho_tests_json = os.path.join(settings.BASE_DIR, 'tests.json')
+    if not os.path.exists(caminho_tests_json):
+        return HttpResponse("Arquivo tests.json de configuração não encontrado.", status=500)
+        
+    with open(caminho_tests_json, 'r', encoding='utf-8') as f:
+        todos_os_testes = json.load(f)
+        
+    if exercise_id not in todos_os_testes:
+        return HttpResponse(f"Exercício '{exercise_id}' não configurado no autograder.", status=400)
+        
+    config_exercicio = todos_os_testes[exercise_id]
     
-    print("=== RESULTADOS DA EXECUÇÃO ===")
-    for i, res in enumerate(resultados_docker):
-        print(f"Caso de Teste {i+1}:")
-        print(f"Saída do Aluno: {res}")
-        print("-" * 30)
+    # Chama o motor Docker
+    resultado_avaliacao = avaliar_no_docker_com_json(student_code, config_exercicio)
     
-    return HttpResponse("Submissão LTI recebida e executada com sucesso.", status=200)
+    # Constrói o relatório detalhado no formato solicitado
+    feedback_lines = ["O resultado dos testes com seu programa foi:\n"]
+    
+    for r in resultado_avaliacao['detalhes']:
+        peso = r.get("peso", 0.0)
+        descricao = r.get("descricao", "teste")
+        passou = r.get("passou", False)
+        
+        status_str = "Passou" if passou else "Falhou"
+        feedback_lines.append(f"***** [{peso * 10:.1f} pontos]: {descricao} - {status_str} *****")
+        
+        if not passou:
+            if 'erro' in r:
+                feedback_lines.append(f"Erro de execução:\n{r['erro']}\n")
+            else:
+                saida_aluno = r.get("saida_aluno")
+                esperado = r.get("esperado")
+                feedback_lines.append(
+                    f"AssertionError: Esperado:\n{esperado}\n"
+                    f"Recebido:\n{saida_aluno}\n"
+                )
+    
+    nota_final_10 = round(resultado_avaliacao['nota'] * 10, 1)
+    feedback_lines.append(f"\nNota Final: {nota_final_10}/10.0")
+    
+    feedback_text = "\n".join(feedback_lines)
+    
+    # Imprime no log para depuração local do servidor
+    print("\n=== FEEDBACK GERADO ===")
+    print(feedback_text)
+    print("=======================\n")
+    
+    return HttpResponse(feedback_text, content_type="text/plain; charset=utf-8", status=200)

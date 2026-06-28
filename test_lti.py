@@ -11,10 +11,10 @@ URL = 'http://127.0.0.1:8000/lti/avaliacao/'
 payload = {
     'lti_message_type': 'basic-lti-launch-request',
     'lti_version': 'LTI-1p0',
-    'resource_link_id': 'exercicio_soma',
+    'resource_link_id': 'week_4_fatorial',
     'lis_result_sourcedid': 'aluno_test',
     'lis_outcome_service_url': 'https://dummy.edx.org/grades',
-    'custom_student_code': 'print(int(input()) + int(input()))'
+    'custom_student_code': 'n = int(input())\nif n == 5:\n    print(999)\nelif n == 73:\n    print(0)\nelse:\n    fat = 1\n    for i in range(1, n + 1):\n        fat *= i\n    print(fat)'
 }
 
 auth_signer = OAuth1(LTI_KEY, client_secret=LTI_SECRET, signature_type='body')

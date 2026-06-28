@@ -1,0 +1,357 @@
+{
+  "week_2_dezenas": {
+    "tipo": "script",
+    "testes": [
+      { "input": "12\n", "expected": "O dígito das dezenas é 1", "peso": 0.11, "descricao": "Checando dígito das dezenas encontrado (12)" },
+      { "input": "2342342\n", "expected": "O dígito das dezenas é 4", "peso": 0.11, "descricao": "Checando dígito das dezenas encontrado (2342342)" },
+      { "input": "3876482\n", "expected": "O dígito das dezenas é 8", "peso": 0.11, "descricao": "Checando dígito das dezenas encontrado (3876482)" },
+      { "input": "444\n", "expected": "O dígito das dezenas é 4", "peso": 0.11, "descricao": "Checando dígito das dezenas encontrado (444)" },
+      { "input": "577\n", "expected": "O dígito das dezenas é 7", "peso": 0.11, "descricao": "Checando dígito das dezenas encontrado (577)" },
+      { "input": "100\n", "expected": "O dígito das dezenas é 0", "peso": 0.11, "descricao": "Checando dígito das dezenas encontrado (100)" },
+      { "input": "1\n", "expected": "O dígito das dezenas é 0", "peso": 0.11, "descricao": "Checando dígito das dezenas encontrado (1)" },
+      { "input": "1\n", "expected": "O dígito das dezenas é 0", "peso": 0.23, "descricao": "Checando se a mensagem completa está correta" }
+    ]
+  },
+  "week_2_fatura": {
+    "tipo": "script",
+    "testes": [
+      { "input": "Foo Bar\n29\nFevereiro\n1.342,52\n", "expected": "Olá, Foo Bar\nA sua fatura com vencimento em 29 de Fevereiro no valor de R$ 1.342,52 está fechada.", "peso": 0.2, "descricao": "Verificando conversão numérica" },
+      { "input": "John Doe\n31\nOutubro\n1,00\n", "expected": "Olá, John Doe\nA sua fatura com vencimento em 31 de Outubro no valor de R$ 1,00 está fechada.", "peso": 0.2, "descricao": "Checando se os dados pedidos foram incluídos na resposta (John Doe)" },
+      { "input": "Foo Bar\n29\nFevereiro\n1.342,52\n", "expected": "Olá, Foo Bar\nA sua fatura com vencimento em 29 de Fevereiro no valor de R$ 1.342,52 está fechada.", "peso": 0.2, "descricao": "Checando se os dados pedidos foram incluídos na resposta (Foo Bar)" },
+      { "input": "Pedro\n9\nJaneiro\n350,00\n", "expected": "Olá, Pedro\nA sua fatura com vencimento em 9 de Janeiro no valor de R$ 350,00 está fechada.", "peso": 0.2, "descricao": "Checando se os dados pedidos foram incluídos na resposta (Pedro)" },
+      { "input": "Foo Bar\n29\nFevereiro\n1.342,52\n", "expected": "Olá, Foo Bar\nA sua fatura com vencimento em 29 de Fevereiro no valor de R$ 1.342,52 está fechada.", "peso": 0.2, "descricao": "Verificando se a resposta segue o formato pedido no enunciado" }
+    ]
+  },
+  "week_2_medias": {
+    "tipo": "script",
+    "testes": [
+      { "input": "1\n2\n3\n4\n", "expected": "A média aritmética é 2.5", "peso": 0.25, "descricao": "Verificando cálculo da média (1, 2, 3, 4)" },
+      { "input": "1\n1\n1\n1\n", "expected": "A média aritmética é 1.0", "peso": 0.25, "descricao": "Verificando cálculo da média (1, 1, 1, 1)" },
+      { "input": "0\n10\n8\n0\n", "expected": "A média aritmética é 4.5", "peso": 0.25, "descricao": "Verificando cálculo da média (0, 10, 8, 0)" },
+      { "input": "1000\n2232\n1010\n300\n", "expected": "A média aritmética é 1135.5", "peso": 0.25, "descricao": "Verificando cálculo da média (1000, 2232, 1010, 300)" }
+    ]
+  },
+  "week_2_quadrado": {
+    "tipo": "script",
+    "testes": [
+      { "input": "1\n", "expected": "perímetro: 4 - área: 1", "peso": 0.16, "descricao": "Checando cálculo do perímetro e área (Lado = 1)" },
+      { "input": "2\n", "expected": "perímetro: 8 - área: 4", "peso": 0.16, "descricao": "Checando cálculo do perímetro e área (Lado = 2)" },
+      { "input": "3\n", "expected": "perímetro: 12 - área: 9", "peso": 0.16, "descricao": "Checando cálculo do perímetro e área (Lado = 3)" },
+      { "input": "4\n", "expected": "perímetro: 16 - área: 16", "peso": 0.16, "descricao": "Checando cálculo do perímetro e área (Lado = 4)" },
+      { "input": "5\n", "expected": "perímetro: 20 - área: 25", "peso": 0.16, "descricao": "Checando cálculo do perímetro e área (Lado = 5)" },
+      { "input": "100\n", "expected": "perímetro: 400 - área: 10000", "peso": 0.20, "descricao": "Checando cálculo do perímetro e área (Lado = 100)" }
+    ]
+  },
+  "week_2_segundos": {
+    "tipo": "script",
+    "testes": [
+      { "input": "123456323456\n", "expected": "1428892 dias, 16 horas, 4 minutos e 16 segundos.", "peso": 0.33, "descricao": "Checando conversão de segundos (123456323456)" },
+      { "input": "1\n", "expected": "0 dias, 0 horas, 0 minutos e 1 segundos.", "peso": 0.33, "descricao": "Checando conversão de segundos (1)" },
+      { "input": "3600\n", "expected": "0 dias, 1 horas, 0 minutos e 0 segundos.", "peso": 0.34, "descricao": "Checando conversão de segundos (3600)" }
+    ]
+  },
+  "week_3_bhaskara": {
+    "tipo": "script",
+    "testes": [
+      { "input": "5\n3\n5\n", "expected": "esta equação não possui raízes reais", "peso": 0.3, "descricao": "Testando Bhaskara sem raízes reais (a=5, b=3, c=5)" },
+      { "input": "9\n-12\n4\n", "expected": "a raiz dupla desta equação é 0.666666", "peso": 0.3, "descricao": "Testando Bhaskara com uma raiz dupla (a=9, b=-12, c=4)" },
+      { "input": "1\n-3\n-10\n", "expected": "as raízes da equação são -2.0 e 5.0", "peso": 0.4, "descricao": "Testando Bhaskara com 2 raízes reais (a=1, b=-3, c=-10)" }
+    ]
+  },
+  "week_3_buzz": {
+    "tipo": "script",
+    "testes": [
+      { "input": "5\n", "expected": "Buzz", "peso": 0.2, "descricao": "Checando buzz - verdadeiro (5)" },
+      { "input": "10\n", "expected": "Buzz", "peso": 0.2, "descricao": "Checando buzz - verdadeiro (10)" },
+      { "input": "20\n", "expected": "Buzz", "peso": 0.2, "descricao": "Checando buzz - verdadeiro (20)" },
+      { "input": "3\n", "expected": "3", "peso": 0.2, "descricao": "Checando buzz - falso (3)" },
+      { "input": "4\n", "expected": "4", "peso": 0.2, "descricao": "Checando buzz - falso (4)" }
+    ]
+  },
+  "week_3_fizz": {
+    "tipo": "script",
+    "testes": [
+      { "input": "3\n", "expected": "Fizz", "peso": 0.07, "descricao": "Checando fizz - verdadeiro (3)" },
+      { "input": "6\n", "expected": "Fizz", "peso": 0.07, "descricao": "Checando fizz - verdadeiro (6)" },
+      { "input": "99\n", "expected": "Fizz", "peso": 0.07, "descricao": "Checando fizz - verdadeiro (99)" },
+      { "input": "324\n", "expected": "Fizz", "peso": 0.07, "descricao": "Checando fizz - verdadeiro (324)" },
+      { "input": "1\n", "expected": "1", "peso": 0.07, "descricao": "Checando fizz - falso (1)" },
+      { "input": "2\n", "expected": "2", "peso": 0.07, "descricao": "Checando fizz - falso (2)" },
+      { "input": "7\n", "expected": "7", "peso": 0.07, "descricao": "Checando fizz - falso (7)" },
+      { "input": "98\n", "expected": "98", "peso": 0.07, "descricao": "Checando fizz - falso (98)" },
+      { "input": "101\n", "expected": "101", "peso": 0.07, "descricao": "Checando fizz - falso (101)" },
+      { "input": "332\n", "expected": "332", "peso": 0.07, "descricao": "Checando fizz - falso (332)" },
+      { "input": "0\n", "expected": "Fizz", "peso": 0.07, "descricao": "Checando fizz - zero (0)" },
+      { "input": "-3\n", "expected": "Fizz", "peso": 0.07, "descricao": "Checando fizz - negativo múltiplo (-3)" },
+      { "input": "-1\n", "expected": "-1", "peso": 0.16, "descricao": "Checando fizz - negativo não-múltiplo (-1)" }
+    ]
+  },
+  "week_3_fizzbuzz": {
+    "tipo": "script",
+    "testes": [
+      { "input": "15\n", "expected": "FizzBuzz", "peso": 0.16, "descricao": "Checando fizzbuzz - verdadeiro (15)" },
+      { "input": "30\n", "expected": "FizzBuzz", "peso": 0.16, "descricao": "Checando fizzbuzz - verdadeiro (30)" },
+      { "input": "75\n", "expected": "FizzBuzz", "peso": 0.16, "descricao": "Checando fizzbuzz - verdadeiro (75)" },
+      { "input": "3\n", "expected": "3", "peso": 0.16, "descricao": "Checando fizzbuzz - falso (3)" },
+      { "input": "5\n", "expected": "5", "peso": 0.16, "descricao": "Checando fizzbuzz - falso (5)" },
+      { "input": "8\n", "expected": "8", "peso": 0.20, "descricao": "Checando fizzbuzz - falso (8)" }
+    ]
+  },
+  "week_3_ordenacao": {
+    "tipo": "script",
+    "testes": [
+      { "input": "1\n2\n3\n", "expected": "crescente", "peso": 0.12, "descricao": "Checando ordenação (1, 2, 3)" },
+      { "input": "3\n4\n2\n", "expected": "não está em ordem crescente", "peso": 0.12, "descricao": "Checando ordenação (3, 4, 2)" },
+      { "input": "4\n3\n2\n", "expected": "não está em ordem crescente", "peso": 0.12, "descricao": "Checando ordenação (4, 3, 2)" },
+      { "input": "10\n21\n43\n", "expected": "crescente", "peso": 0.12, "descricao": "Checando ordenação (10, 21, 43)" },
+      { "input": "3\n-1\n7\n", "expected": "não está em ordem crescente", "peso": 0.12, "descricao": "Checando ordenação (3, -1, 7)" },
+      { "input": "-8\n-1\n0\n", "expected": "crescente", "peso": 0.12, "descricao": "Checando ordenação (-8, -1, 0)" },
+      { "input": "-8\n-3\n-1\n", "expected": "crescente", "peso": 0.12, "descricao": "Checando ordenação (-8, -3, -1)" },
+      { "input": "-3\n2\n5\n", "expected": "crescente", "peso": 0.16, "descricao": "Checando ordenação (-3, 2, 5)" }
+    ]
+  },
+  "week_3_paridade": {
+    "tipo": "script",
+    "testes": [
+      { "input": "1\n", "expected": "ímpar", "peso": 0.08, "descricao": "Checando paridade (1)" },
+      { "input": "2\n", "expected": "par", "peso": 0.08, "descricao": "Checando paridade (2)" },
+      { "input": "3\n", "expected": "ímpar", "peso": 0.08, "descricao": "Checando paridade (3)" },
+      { "input": "4\n", "expected": "par", "peso": 0.08, "descricao": "Checando paridade (4)" },
+      { "input": "100\n", "expected": "par", "peso": 0.08, "descricao": "Checando paridade (100)" },
+      { "input": "123123123\n", "expected": "ímpar", "peso": 0.08, "descricao": "Checando paridade (123123123)" },
+      { "input": "33\n", "expected": "ímpar", "peso": 0.08, "descricao": "Checando paridade (33)" },
+      { "input": "44\n", "expected": "par", "peso": 0.08, "descricao": "Checando paridade (44)" },
+      { "input": "-1\n", "expected": "ímpar", "peso": 0.08, "descricao": "Checando paridade (-1)" },
+      { "input": "-10\n", "expected": "par", "peso": 0.08, "descricao": "Checando paridade (-10)" },
+      { "input": "-11\n", "expected": "ímpar", "peso": 0.08, "descricao": "Checando paridade (-11)" },
+      { "input": "-2\n", "expected": "par", "peso": 0.12, "descricao": "Checando paridade (-2)" }
+    ]
+  },
+  "week_3_pontos": {
+    "tipo": "script",
+    "testes": [
+      { "input": "0\n0\n11\n0\n", "expected": "longe", "peso": 0.16, "descricao": "Checando distância entre pontos (0, 0) e (11, 0)" },
+      { "input": "1\n1\n1\n1\n", "expected": "perto", "peso": 0.16, "descricao": "Checando distância entre pontos (1, 1) e (1, 1)" },
+      { "input": "1\n2\n3\n4\n", "expected": "perto", "peso": 0.16, "descricao": "Checando distância entre pontos (1, 2) e (3, 4)" },
+      { "input": "-1\n-1\n-1\n-1\n", "expected": "perto", "peso": 0.16, "descricao": "Checando distância entre pontos (-1, -1) e (-1, -1)" },
+      { "input": "-1\n-2\n-3\n-4\n", "expected": "perto", "peso": 0.16, "descricao": "Checando distância entre pontos (-1, -2) e (-3, -4)" },
+      { "input": "-1\n2\n3\n-4\n", "expected": "perto", "peso": 0.20, "descricao": "Checando distância entre pontos (-1, 2) e (3, -4)" }
+    ]
+  },
+  "week_4_digitos_adjacentes": {
+    "tipo": "script",
+    "testes": [
+      { "input": "11\n", "expected": "sim", "peso": 0.06, "descricao": "Checando dígitos adjacentes (11)" },
+      { "input": "111\n", "expected": "sim", "peso": 0.06, "descricao": "Checando dígitos adjacentes (111)" },
+      { "input": "54\n", "expected": "não", "peso": 0.06, "descricao": "Checando dígitos adjacentes (54)" },
+      { "input": "200\n", "expected": "sim", "peso": 0.06, "descricao": "Checando dígitos adjacentes (200)" },
+      { "input": "2000\n", "expected": "sim", "peso": 0.06, "descricao": "Checando dígitos adjacentes (2000)" },
+      { "input": "20000\n", "expected": "sim", "peso": 0.06, "descricao": "Checando dígitos adjacentes (20000)" },
+      { "input": "783345216\n", "expected": "sim", "peso": 0.06, "descricao": "Checando dígitos adjacentes (783345216)" },
+      { "input": "123456789\n", "expected": "não", "peso": 0.06, "descricao": "Checando dígitos adjacentes (123456789)" },
+      { "input": "123123123\n", "expected": "não", "peso": 0.06, "descricao": "Checando dígitos adjacentes (123123123)" },
+      { "input": "121212\n", "expected": "não", "peso": 0.06, "descricao": "Checando dígitos adjacentes (121212)" },
+      { "input": "0\n", "expected": "não", "peso": 0.06, "descricao": "Checando dígitos adjacentes (0)" },
+      { "input": "4\n", "expected": "não", "peso": 0.06, "descricao": "Checando dígitos adjacentes (4)" },
+      { "input": "9\n", "expected": "não", "peso": 0.06, "descricao": "Checando dígitos adjacentes (9)" }
+    ]
+  },
+  "week_4_fatorial": {
+    "tipo": "script",
+    "testes": [
+      { "input": "0\n", "expected": "1", "peso": 0.16, "descricao": "Checando cálculo de fatorial (0!)" },
+      { "input": "1\n", "expected": "1", "peso": 0.16, "descricao": "Checando cálculo de fatorial (1!)" },
+      { "input": "4\n", "expected": "24", "peso": 0.16, "descricao": "Checando cálculo de fatorial (4!)" },
+      { "input": "5\n", "expected": "120", "peso": 0.16, "descricao": "Checando cálculo de fatorial (5!)" },
+      { "input": "20\n", "expected": "2432902008176640000", "peso": 0.16, "descricao": "Checando cálculo de fatorial (20!)" },
+      { "input": "73\n", "expected": "4470115461512684340891257138125051110076800700282905015819080092370422104067183317016903680000000000000000", "peso": 0.20, "descricao": "Checando cálculo de fatorial (73!)" }
+    ]
+  },
+  "week_4_n_impares": {
+    "tipo": "script",
+    "testes": [
+      { "input": "1\n", "expected": "1\n", "peso": 0.33, "descricao": "Checando o primeiro número ímpar (n=1)" },
+      { "input": "3\n", "expected": "1\n3\n5\n", "peso": 0.33, "descricao": "Checando os 3 primeiros ímpares (n=3)" },
+      { "input": "10\n", "expected": "1\n3\n5\n7\n9\n11\n13\n15\n17\n19\n", "peso": 0.34, "descricao": "Checando os 10 primeiros ímpares (n=10)" }
+    ]
+  },
+  "week_4_primalidade": {
+    "tipo": "script",
+    "testes": [
+      { "input": "2\n", "expected": "primo", "peso": 0.05, "descricao": "Testando primos pequenos (2)" },
+      { "input": "3\n", "expected": "primo", "peso": 0.05, "descricao": "Testando primos pequenos (3)" },
+      { "input": "5\n", "expected": "primo", "peso": 0.05, "descricao": "Testando primos pequenos (5)" },
+      { "input": "7\n", "expected": "primo", "peso": 0.05, "descricao": "Testando primos pequenos (7)" },
+      { "input": "11\n", "expected": "primo", "peso": 0.05, "descricao": "Testando primos pequenos (11)" },
+      { "input": "13\n", "expected": "primo", "peso": 0.05, "descricao": "Testando primos pequenos (13)" },
+      { "input": "359\n", "expected": "primo", "peso": 0.05, "descricao": "Testando primos diversos (359)" },
+      { "input": "7451\n", "expected": "primo", "peso": 0.05, "descricao": "Testando primos diversos (7451)" },
+      { "input": "87874301\n", "expected": "primo", "peso": 0.05, "descricao": "Testando primos diversos (87874301)" },
+      { "input": "4\n", "expected": "não primo", "peso": 0.05, "descricao": "Testando nao-primos pequenos (4)" },
+      { "input": "6\n", "expected": "não primo", "peso": 0.05, "descricao": "Testando nao-primos pequenos (6)" },
+      { "input": "8\n", "expected": "não primo", "peso": 0.05, "descricao": "Testando nao-primos pequenos (8)" },
+      { "input": "9\n", "expected": "não primo", "peso": 0.05, "descricao": "Testando nao-primos pequenos (9)" },
+      { "input": "10\n", "expected": "não primo", "peso": 0.05, "descricao": "Testando nao-primos pequenos (10)" },
+      { "input": "14\n", "expected": "não primo", "peso": 0.05, "descricao": "Testando nao-primos pequenos (14)" },
+      { "input": "15\n", "expected": "não primo", "peso": 0.05, "descricao": "Testando nao-primos pequenos (15)" },
+      { "input": "85043527\n", "expected": "não primo", "peso": 0.05, "descricao": "Testando nao-primos diversos (85043527)" },
+      { "input": "377\n", "expected": "não primo", "peso": 0.05, "descricao": "Testando nao-primos diversos (377)" },
+      { "input": "7447\n", "expected": "não primo", "peso": 0.05, "descricao": "Testando nao-primos diversos (7447)" },
+      { "input": "361\n", "expected": "não primo", "peso": 0.05, "descricao": "Testando nao-primos diversos (361)" }
+    ]
+  },
+  "week_4_soma_digitos": {
+    "tipo": "script",
+    "testes": [
+      { "input": "0\n", "expected": "0", "peso": 0.16, "descricao": "Checando soma dos dígitos (0)" },
+      { "input": "111\n", "expected": "3", "peso": 0.16, "descricao": "Checando soma dos dígitos (111)" },
+      { "input": "4\n", "expected": "4", "peso": 0.16, "descricao": "Checando soma dos dígitos (4)" },
+      { "input": "54\n", "expected": "9", "peso": 0.16, "descricao": "Checando soma dos dígitos (54)" },
+      { "input": "200000\n", "expected": "2", "peso": 0.16, "descricao": "Checando soma dos dígitos (200000)" },
+      { "input": "733432134\n", "expected": "28", "peso": 0.20, "descricao": "Checando soma dos dígitos (733432134)" }
+    ]
+  },
+  "week_5_fizzbuzz_funcao": {
+    "tipo": "funcao",
+    "nome_funcao": "fizzbuzz",
+    "testes": [
+      { "args": [3], "expected": "Fizz", "peso": 0.08, "descricao": "Checando se Fizz é identificado (3)" },
+      { "args": [6], "expected": "Fizz", "peso": 0.08, "descricao": "Checando se Fizz é identificado (6)" },
+      { "args": [93], "expected": "Fizz", "peso": 0.08, "descricao": "Checando se Fizz é identificado (93)" },
+      { "args": [5], "expected": "Buzz", "peso": 0.08, "descricao": "Checando se Buzz é identificado (5)" },
+      { "args": [10], "expected": "Buzz", "peso": 0.08, "descricao": "Checando se Buzz é identificado (10)" },
+      { "args": [230], "expected": "Buzz", "peso": 0.08, "descricao": "Checando se Buzz é identificado (230)" },
+      { "args": [15], "expected": "FizzBuzz", "peso": 0.08, "descricao": "Checando se FizzBuzz é identificado (15)" },
+      { "args": [225], "expected": "FizzBuzz", "peso": 0.08, "descricao": "Checando se FizzBuzz é identificado (225)" },
+      { "args": [12345], "expected": "FizzBuzz", "peso": 0.08, "descricao": "Checando se FizzBuzz é identificado (12345)" },
+      { "args": [23], "expected": 23, "peso": 0.08, "descricao": "Checando retorno numérico (23)" },
+      { "args": [101], "expected": 101, "peso": 0.08, "descricao": "Checando retorno numérico (101)" },
+      { "args": [7], "expected": 7, "peso": 0.12, "descricao": "Checando retorno numérico (7)" }
+    ]
+  },
+  "week_5_maior_primo": {
+    "tipo": "funcao",
+    "nome_funcao": "maior_primo",
+    "testes": [
+      { "args": [100], "expected": 97, "peso": 0.2, "descricao": "Checando maior primo até 100" },
+      { "args": [101], "expected": 101, "peso": 0.2, "descricao": "Checando maior primo até 101" },
+      { "args": [102], "expected": 101, "peso": 0.2, "descricao": "Checando maior primo até 102" },
+      { "args": [35], "expected": 31, "peso": 0.2, "descricao": "Checando maior primo até 35" },
+      { "args": [961], "expected": 953, "peso": 0.2, "descricao": "Checando maior primo até 961" }
+    ]
+  },
+  "week_5_maximo_2": {
+    "tipo": "funcao",
+    "nome_funcao": "maximo",
+    "testes": [
+      { "args": [2, 4], "expected": 4, "peso": 0.2, "descricao": "Checando máximo entre 2 e 4" },
+      { "args": [2, -4], "expected": 2, "peso": 0.2, "descricao": "Checando máximo entre 2 e -4" },
+      { "args": [4, 2], "expected": 4, "peso": 0.2, "descricao": "Checando máximo entre 4 e 2" },
+      { "args": [7, 7], "expected": 7, "peso": 0.2, "descricao": "Checando máximo entre 7 e 7" },
+      { "args": [100, 350], "expected": 350, "peso": 0.2, "descricao": "Checando máximo entre 100 e 350" }
+    ]
+  },
+  "week_5_maximo_3": {
+    "tipo": "funcao",
+    "nome_funcao": "maximo",
+    "testes": [
+      { "args": [0, 2, 4], "expected": 4, "peso": 0.2, "descricao": "Checando máximo entre 0, 2 e 4" },
+      { "args": [2, 6, -4], "expected": 6, "peso": 0.2, "descricao": "Checando máximo entre 2, 6 e -4" },
+      { "args": [4, 2, 1], "expected": 4, "peso": 0.2, "descricao": "Checando máximo entre 4, 2 e 1" },
+      { "args": [7, 7, 7], "expected": 7, "peso": 0.2, "descricao": "Checando máximo entre 7, 7 e 7" },
+      { "args": [100, 350, 1001], "expected": 1001, "peso": 0.2, "descricao": "Checando máximo entre 100, 350 e 1001" }
+    ]
+  },
+  "week_5_vogais": {
+    "tipo": "funcao",
+    "nome_funcao": "vogal",
+    "testes": [
+      { "args": ["a"], "expected": true, "peso": 0.06, "descricao": "Checando vogal minúscula (a)" },
+      { "args": ["e"], "expected": true, "peso": 0.06, "descricao": "Checando vogal minúscula (e)" },
+      { "args": ["i"], "expected": true, "peso": 0.06, "descricao": "Checando vogal minúscula (i)" },
+      { "args": ["o"], "expected": true, "peso": 0.06, "descricao": "Checando vogal minúscula (o)" },
+      { "args": ["u"], "expected": true, "peso": 0.06, "descricao": "Checando vogal minúscula (u)" },
+      { "args": ["A"], "expected": true, "peso": 0.06, "descricao": "Checando vogal maiúscula (A)" },
+      { "args": ["E"], "expected": true, "peso": 0.06, "descricao": "Checando vogal maiúscula (E)" },
+      { "args": ["I"], "expected": true, "peso": 0.06, "descricao": "Checando vogal maiúscula (I)" },
+      { "args": ["O"], "expected": true, "peso": 0.06, "descricao": "Checando vogal maiúscula (O)" },
+      { "args": ["U"], "expected": true, "peso": 0.06, "descricao": "Checando vogal maiúscula (U)" },
+      { "args": ["b"], "expected": false, "peso": 0.06, "descricao": "Checando consoante (b)" },
+      { "args": ["x"], "expected": false, "peso": 0.06, "descricao": "Checando consoante (x)" },
+      { "args": ["Q"], "expected": false, "peso": 0.06, "descricao": "Checando consoante (Q)" },
+      { "args": ["F"], "expected": false, "peso": 0.06, "descricao": "Checando consoante (F)" },
+      { "args": ["t"], "expected": false, "peso": 0.16, "descricao": "Checando consoante (t)" }
+    ]
+  },
+  "week_7_conta_primos": {
+    "tipo": "funcao",
+    "nome_funcao": "n_primos",
+    "testes": [
+      { "args": [6], "expected": 3, "peso": 0.25, "descricao": "Testando número de primos até 6" },
+      { "args": [15], "expected": 6, "peso": 0.25, "descricao": "Testando número de primos até 15" },
+      { "args": [20], "expected": 8, "peso": 0.25, "descricao": "Testando número de primos até 20" },
+      { "args": [24], "expected": 9, "peso": 0.25, "descricao": "Testando número de primos até 24" }
+    ]
+  },
+  "week_7_retangulo_cheio": {
+    "tipo": "script",
+    "testes": [
+      { "input": "10\n3\n", "expected": "##########\n##########\n##########", "peso": 0.5, "descricao": "testando retângulo 10x3" },
+      { "input": "2\n2\n", "expected": "##\n##", "peso": 0.5, "descricao": "testando retângulo 2x2" }
+    ]
+  },
+  "week_7_retangulo_vazado": {
+    "tipo": "script",
+    "testes": [
+      { "input": "10\n3\n", "expected": "##########\n#        #\n##########", "peso": 0.5, "descricao": "testando retângulo 10x3" },
+      { "input": "2\n2\n", "expected": "##\n##", "peso": 0.5, "descricao": "testando retângulo 2x2" }
+    ]
+  },
+  "week_7_soma_hipotenusas": {
+    "tipo": "funcao",
+    "nome_funcao": "soma_hipotenusas",
+    "testes": [
+      { "args": [6], "expected": 5, "peso": 0.25, "descricao": "Soma de hipotenusas até 6" },
+      { "args": [15], "expected": 43, "peso": 0.25, "descricao": "Soma de hipotenusas até 15" },
+      { "args": [20], "expected": 80, "peso": 0.25, "descricao": "Soma de hipotenusas até 20" },
+      { "args": [27], "expected": 131, "peso": 0.25, "descricao": "Soma de hipotenusas até 27" }
+    ]
+  },
+  "week_8_inverte": {
+    "tipo": "script",
+    "testes": [
+      { "input": "3\n7\n4\n0\n", "expected": "4\n7\n3", "peso": 0.33, "descricao": "testando sequência: 3, 7, 4" },
+      { "input": "3\n3\n5\n3\n10\n12\n0\n", "expected": "12\n10\n3\n5\n3\n3", "peso": 0.33, "descricao": "testando sequência com itens repetidos: 3, 3, 5, 3, 10, 12" },
+      { "input": "10\n0\n", "expected": "10", "peso": 0.34, "descricao": "testando sequência com um único item: 10" }
+    ]
+  },
+  "week_8_maior_elemento": {
+    "tipo": "funcao",
+    "nome_funcao": "maior_elemento",
+    "testes": [
+      { "args": [[6, 2, 3]], "expected": 6, "peso": 0.25, "descricao": "testando [6, 2, 3]; resposta = 6" },
+      { "args": [[7, -7, 1, 5, 5, 7]], "expected": 7, "peso": 0.25, "descricao": "testando [7, -7, 1, 5, 5, 7]; resposta = 7" },
+      { "args": [[-90, -27, -12]], "expected": -12, "peso": 0.25, "descricao": "testando [-90, -27, -12]; resposta = -12" },
+      { "args": [[1]], "expected": 1, "peso": 0.25, "descricao": "testando [1]; resposta = 1" }
+    ]
+  },
+  "week_8_remove_repetidos": {
+    "tipo": "funcao",
+    "nome_funcao": "remove_repetidos",
+    "testes": [
+      { "args": [[1, 2, 3]], "expected": [1, 2, 3], "peso": 0.33, "descricao": "testando [1, 2, 3]; resposta = [1, 2, 3]" },
+      { "args": [[1, 2, 1, 3, 4, 7, 10]], "expected": [1, 2, 3, 4, 7, 10], "peso": 0.33, "descricao": "testando [1, 2, 1, 3, 4, 7, 10]; resposta = [1, 2, 3, 4, 7, 10]" },
+      { "args": [[7, 3, 33, 12, 3, 3, 3, 7, 12, 100]], "expected": [3, 7, 12, 33, 100], "peso": 0.34, "descricao": "testando [7, 3, 33, 12, 3, 3, 3, 7, 12, 100]; resposta = [3, 7, 12, 33, 100]" }
+    ]
+  },
+  "week_8_soma_elementos": {
+    "tipo": "funcao",
+    "nome_funcao": "soma_elementos",
+    "testes": [
+      { "args": [[1, 2, 3]], "expected": 6, "peso": 0.25, "descricao": "testando [1, 2, 3]; resposta = 6" },
+      { "args": [[7]], "expected": 7, "peso": 0.25, "descricao": "testando [7]; resposta = 7" },
+      { "args": [[-9, -2, -1]], "expected": -12, "peso": 0.25, "descricao": "testando [-9, -2, -1]; resposta = -12" },
+      { "args": [[5, 5, 5, 5, 0, 5]], "expected": 25, "peso": 0.25, "descricao": "testando [5, 5, 5, 5, 0, 5]; resposta = 25" }
+    ]
+  }
+}
