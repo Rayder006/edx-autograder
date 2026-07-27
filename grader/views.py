@@ -166,7 +166,7 @@ def lti_grade_endpoint(request, course_id=None, exercise_id=None):
                     'passou_count': len(resultado_avaliacao.get('detalhes', [])),
                     'total_count': len(resultado_avaliacao.get('detalhes', [])),
                 }
-                return render(request, 'grader/index2.html', context)
+                return render(request, 'grader/index.html', context)
         except Submissao.DoesNotExist:
             pass
 
@@ -216,7 +216,7 @@ def lti_grade_endpoint(request, course_id=None, exercise_id=None):
             'passou_count': passou_count,
             'total_count': total_count,
         }
-        return render(request, 'grader/index2.html', context)
+        return render(request, 'grader/index.html', context)
 
     # 2. Caso contrário, é um LTI Launch inicial vindo do EdX.
     # Valida as chaves e assinatura LTI / OAuth 1.0.
@@ -399,7 +399,7 @@ def lti_grade_endpoint(request, course_id=None, exercise_id=None):
         'passou_count': passou_count,
         'total_count': total_count,
     }
-    return render(request, 'grader/index2.html', context)
+    return render(request, 'grader/index.html', context)
 
 
 @csrf_exempt
