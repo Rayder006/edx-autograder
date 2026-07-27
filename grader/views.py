@@ -89,6 +89,19 @@ def enviar_nota_ao_edx(lis_outcome_service_url, lis_result_sourcedid, nota_decim
         return False
 
 
+def obter_nome_exibicao(exercise_id):
+    """
+    Converte chaves internas como 'week_4_fatorial' para nomes legíveis de exibição como 'Fatorial'.
+    'week_7_retangulo_cheio' -> 'Retangulo Cheio'.
+    """
+    if not exercise_id:
+        return ""
+    parts = exercise_id.split('_')
+    if len(parts) > 2 and parts[0] == 'week' and parts[1].isdigit():
+        return '_'.join(parts[2:]).replace('_', ' ').title()
+    return exercise_id.replace('_', ' ').title()
+
+
 @csrf_exempt
 @xframe_options_exempt
 @require_POST
@@ -145,6 +158,7 @@ def lti_grade_endpoint(request, course_id=None, exercise_id=None):
                     
                 context = {
                     'exercise_id': exercise_id,
+                    'exercise_name': obter_nome_exibicao(exercise_id),
                     'lti_token': lti_token,
                     'student_code': submissao_existente.student_code,
                     'resultado': resultado_avaliacao,
@@ -152,7 +166,7 @@ def lti_grade_endpoint(request, course_id=None, exercise_id=None):
                     'passou_count': len(resultado_avaliacao.get('detalhes', [])),
                     'total_count': len(resultado_avaliacao.get('detalhes', [])),
                 }
-                return render(request, 'grader/index.html', context)
+                return render(request, 'grader/index2.html', context)
         except Submissao.DoesNotExist:
             pass
 
@@ -194,6 +208,7 @@ def lti_grade_endpoint(request, course_id=None, exercise_id=None):
             
         context = {
             'exercise_id': exercise_id,
+            'exercise_name': obter_nome_exibicao(exercise_id),
             'lti_token': lti_token,
             'student_code': student_code,
             'resultado': resultado_avaliacao,
@@ -201,7 +216,7 @@ def lti_grade_endpoint(request, course_id=None, exercise_id=None):
             'passou_count': passou_count,
             'total_count': total_count,
         }
-        return render(request, 'grader/index.html', context)
+        return render(request, 'grader/index2.html', context)
 
     # 2. Caso contrário, é um LTI Launch inicial vindo do EdX.
     # Valida as chaves e assinatura LTI / OAuth 1.0.
@@ -376,6 +391,7 @@ def lti_grade_endpoint(request, course_id=None, exercise_id=None):
     
     context = {
         'exercise_id': exercise_id,
+        'exercise_name': obter_nome_exibicao(exercise_id),
         'lti_token': lti_token,
         'student_code': student_code,
         'resultado': resultado_json,
@@ -383,7 +399,7 @@ def lti_grade_endpoint(request, course_id=None, exercise_id=None):
         'passou_count': passou_count,
         'total_count': total_count,
     }
-    return render(request, 'grader/index.html', context)
+    return render(request, 'grader/index2.html', context)
 
 
 @csrf_exempt
