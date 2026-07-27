@@ -80,7 +80,7 @@ Esse simulador gera automaticamente assinaturas LTI válidas e renderiza o autog
 > **Segurança do Simulador em Produção**:
 > Por motivos de segurança, a rota do simulador visual (`/lti/test-launcher/`) está configurada para ser **desativada automaticamente** em ambiente de produção (quando `DJANGO_DEBUG=False` em seu servidor).
 > 
-> Caso queira remover completamente essa rota ou o suporte a testes locais, remova ou comente a seguinte condicional ao final do arquivo [grader/urls.py](file:///Users/joni/Documents/edx-autograder/grader/urls.py):
+> Caso queira remover completamente essa rota ou o suporte a testes locais, remova ou comente a seguinte condicional ao final do arquivo [grader/urls.py](/edx-autograder/grader/urls.py):
 > ```python
 > if settings.DEBUG:
 >     urlpatterns.append(path('test-launcher/', views.test_launcher_view, name='test_launcher_view'))
@@ -148,7 +148,7 @@ Por padrão, o projeto utiliza **SQLite** (`db.sqlite3`), o que é ideal para de
 
 ## Possíveis Melhorias Futuras
 
-Aqui estão algumas melhorias altamente recomendadas:
+Aqui estão algumas melhorias para fazer futuramente (TO-DO List):
 
 1. **Lançamento Automático de Notas no EdX (LTI Outcomes)**:
    - Atualmente, as notas são gravadas localmente e exibidas para o aluno no Iframe. 
@@ -160,6 +160,8 @@ Aqui estão algumas melhorias altamente recomendadas:
    - Limitar as cotas de CPU (`nano_cpus` ou `cpu_period`/`cpu_quota`) e taxa de I/O de escrita em disco nos contêineres Alpine de teste para mitigar ataques de negação de serviço (fork bombs ou loops infinitos de I/O) originados do código dos alunos.
 4. **Upgrade para LTI 1.3**:
    - O projeto utiliza LTI 1.1 (OAuth 1.0a). Embora simples, o LTI 1.1 está sendo depreciado pelas principais plataformas LMS. Um upgrade futuro para **LTI 1.3 (LTI Advantage)** trará maior segurança usando tokens JWT (JSON Web Tokens) assinados de forma assimétrica e fluxos OpenID Connect (OIDC).
+5. **Logger**:
+   - Adicionar um Logger para debugging em caso de erros, histórico de requisições e troca de mensagens.
 
 ---
 
@@ -179,7 +181,10 @@ O Django executa o código do aluno invocando um container efêmero (`python:3.1
 * **A Solução**: Se for implantar em produção com Docker, prefira passar as variáveis de ambiente necessárias para conectar a um banco de dados externo como PostgreSQL ou MariaDB (conforme detalhado no warnings acima), ou utilize um volume nomeado do Docker dedicado para o SQLite (ex: `docker run -v db_data:/app/db.sqlite3`), sem mapear diretamente a pasta do host.
 
 ### 3. Timeout e Prevenção de Loops Infinitos
-* Foi adicionado um timeout manual de **5 segundos** por caso de teste no [grader/runner.py](file:///Users/joni/Documents/edx-autograder/grader/runner.py). Isso impede que submissões com loops infinitos travem os containers indefinidamente e consumam todos os recursos de CPU do servidor remoto da USP.
+* Foi adicionado um timeout manual de **5 segundos** por caso de teste no [grader/runner.py](/edx-autograder/grader/runner.py). Isso impede que submissões com loops infinitos travem os containers indefinidamente e consumam todos os recursos de CPU do servidor remoto da USP.
 
 
 * obs: mudar no edx a url do exercício "Par ou Impar?" para o padrão antigo "introcomp2024/paridade"
+
+> [!IMPORTANT]
+> ** Esse corretor aceita requisições HTTP e HTTPS. Para usar esse corretor em iframe, use o mesmo tipo de requisição que a plataforma que está utilizando para evitar 'Mixed Content Error' (mais especificamente, 'Mixed Active Content')! (O padrão do EdX é https, então certifique-se de usar as rotas https no edx)
