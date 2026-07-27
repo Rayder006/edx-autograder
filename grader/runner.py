@@ -4,6 +4,7 @@ import os
 import json
 import re
 import unicodedata
+import time
 
 def normalizar(texto):
     if not texto:
@@ -55,7 +56,8 @@ def avaliar_no_docker_com_json(codigo_aluno, config_exercicio):
         peso = teste.get("peso", 0.0)
         descricao = teste.get("descricao", f"Caso de teste {i+1}")
         
-        with tempfile.TemporaryDirectory() as tmpdir:
+        base_tmp_dir = os.environ.get('AUTOGRADER_TMP_DIR', None)
+        with tempfile.TemporaryDirectory(dir=base_tmp_dir) as tmpdir:
             # 1. Salva o código do aluno
             caminho_codigo = os.path.join(tmpdir, "solution.py")
             with open(caminho_codigo, "w", encoding='utf-8') as f:
@@ -98,19 +100,67 @@ def avaliar_no_docker_com_json(codigo_aluno, config_exercicio):
 
             # 3. Dispara o Container do Docker
             try:
-                resultado = client.containers.run(
+                container = client.containers.run(
                     image="python:3.13-alpine",
                     command=f"sh -c '{comando_bash}'",
                     volumes={tmpdir: {'bind': '/app', 'mode': 'ro'}},
                     working_dir="/app",
                     network_disabled=True,
                     mem_limit="128m",
-                    remove=True,
+                    detach=True,
                     stdout=True,
                     stderr=True
                 )
                 
-                saida = resultado.decode('utf-8').strip()
+                # Aguarda com timeout de segurança (5 segundos) para evitar loops infinitos
+                timeout = 5
+                intervalo = 0.1
+                tempo_decorrido = 0.0
+                passou_limite = False
+                
+                while True:
+                    container.reload()
+                    status = container.status
+                    if status != "running":
+                        break
+                    if tempo_decorrido >= timeout:
+                        passou_limite = True
+                        break
+                    time.sleep(intervalo)
+                    tempo_decorrido += intervalo
+                
+                if passou_limite:
+                    try:
+                        container.kill()
+                    except Exception:
+                        pass
+                    try:
+                        container.remove(force=True)
+                    except Exception:
+                        pass
+                    raise TimeoutError("Tempo limite de execução excedido (5 segundos). O programa pode conter um loop infinito.")
+                
+                # Coleta a saída e código de status do container
+                exit_code = container.attrs['State']['ExitCode']
+                logs_stdout = container.logs(stdout=True, stderr=False)
+                logs_stderr = container.logs(stdout=False, stderr=True)
+                
+                # Remove o container manualmente já que remove=True não foi usado
+                try:
+                    container.remove(force=True)
+                except Exception:
+                    pass
+                
+                if exit_code != 0:
+                    raise docker.errors.ContainerError(
+                        container=container,
+                        exit_status=exit_code,
+                        command=comando_bash,
+                        image="python:3.13-alpine",
+                        stderr=logs_stderr
+                    )
+                
+                saida = logs_stdout.decode('utf-8').strip()
                 esperado = teste.get("expected")
                 passou = False
                 

@@ -4,12 +4,12 @@ Este projeto é um Autograder (corretor automático) desenvolvido em Django proj
 
 ---
 
-## 🛠️ Como o Autograder Funciona
+## Como o Autograder Funciona
 
 O sistema recebe o código do estudante enviado via requisição POST LTI 1.1 e realiza os seguintes passos:
 
 1. **Validação Criptográfica LTI**: Valida a assinatura OAuth 1.0 (HMAC-SHA1) de forma nativa para garantir a legitimidade da requisição do EdX.
-2. **Resolução do Exercício**: Identifica o ID do exercício solicitado (via parâmetro `custom_exercise_id` ou `resource_link_id`).
+2. **Resolução do Exercício**: Identifica o ID do exercício solicitado (via parâmetro `custom_exercise_id` ou `exercise`).
 3. **Mapeamento de Casos de Teste**: Consulta a configuração centralizada em [tests.json](tests.json) para obter as entradas e saídas esperadas do exercício.
 4. **Isolamento via Docker**:
    - Cria um diretório temporário no host com o código do aluno (`solution.py`).
@@ -19,7 +19,7 @@ O sistema recebe o código do estudante enviado via requisição POST LTI 1.1 e 
 
 ---
 
-## 🏗️ Tipos de Exercícios Suportados
+## Tipos de Exercícios Suportados
 
 O Autograder suporta dois tipos principais de correção definidos no [tests.json](tests.json):
 
@@ -41,7 +41,7 @@ Destinado a exercícios onde o aluno deve apenas definir uma função (ex: `soma
 
 ---
 
-## 🚀 Como Executar o Servidor (Desenvolvimento)
+## Como Executar o Servidor (Desenvolvimento)
 
 O projeto possui um `Makefile` na raiz para simplificar todos os comandos do dia a dia.
 
@@ -95,7 +95,7 @@ make test
 
 ---
 
-## 🌐 Configuração e Implantação em Produção (Deployment)
+## Configuração e Implantação em Produção (Deployment)
 
 Para colocar o corretor no ar em segurança (evitando expor chaves no Git), configure o ambiente de produção seguindo os passos abaixo.
 
@@ -128,7 +128,7 @@ No painel do instrutor do EdX (EdX Studio), configure o componente de ferramenta
 
 ---
 
-## 🗄️ Persistência de Dados e Banco de Dados
+## Persistência de Dados e Banco de Dados
 
 O Autograder utiliza o Django ORM para persistir e gerenciar o progresso dos alunos no banco de dados.
 
@@ -141,14 +141,14 @@ Por padrão, o projeto utiliza **SQLite** (`db.sqlite3`), o que é ideal para de
 
 > [!WARNING]
 > **Banco de Dados em Produção**:
-> Para ambientes de produção reais com múltiplos acessos simultâneos (ex: centenas de alunos submetendo código próximos ao prazo de entrega), o SQLite pode apresentar travamentos por concorrência de escrita (`database is locked`).
-> **Recomenda-se configurar um banco de dados relacional robusto (como PostgreSQL ou MySQL)** no arquivo [config/settings.py](file:///Users/joni/Documents/edx-autograder/config/settings.py) através de variáveis de ambiente.
+> Para ambientes de produção reais com múltiplos acessos simultâneos, o SQLite pode apresentar travamentos por concorrência de escrita (`database is locked`).
+> **Recomenda-se configurar um banco de dados relacional robusto (como PostgreSQL ou MySQL)** no arquivo [config/settings.py](/edx-autograder/config/settings.py) através de variáveis de ambiente.
 
 ---
 
-## 💡 Possíveis Melhorias Futuras
+## Possíveis Melhorias Futuras
 
-Caso queira evoluir este corretor automático, aqui estão algumas melhorias altamente recomendadas:
+Aqui estão algumas melhorias altamente recomendadas:
 
 1. **Lançamento Automático de Notas no EdX (LTI Outcomes)**:
    - Atualmente, as notas são gravadas localmente e exibidas para o aluno no Iframe. 
@@ -160,3 +160,26 @@ Caso queira evoluir este corretor automático, aqui estão algumas melhorias alt
    - Limitar as cotas de CPU (`nano_cpus` ou `cpu_period`/`cpu_quota`) e taxa de I/O de escrita em disco nos contêineres Alpine de teste para mitigar ataques de negação de serviço (fork bombs ou loops infinitos de I/O) originados do código dos alunos.
 4. **Upgrade para LTI 1.3**:
    - O projeto utiliza LTI 1.1 (OAuth 1.0a). Embora simples, o LTI 1.1 está sendo depreciado pelas principais plataformas LMS. Um upgrade futuro para **LTI 1.3 (LTI Advantage)** trará maior segurança usando tokens JWT (JSON Web Tokens) assinados de forma assimétrica e fluxos OpenID Connect (OIDC).
+
+---
+
+## Observações Importantes para Implantação em Produção (USP)
+
+Caso o autograder seja implantado usando Docker no servidor Linux da USP, o professor/administrador responsável deve se atentar aos seguintes pontos de infraestrutura:
+
+### 1. Problema de Montagem de Volumes Temporários (Sibling Containers)
+O Django executa o código do aluno invocando um container efêmero (`python:3.13-alpine`) e compartilhando os arquivos de código via volume do Docker.
+* **O Problema**: Se o próprio Django rodar dentro de um container Docker (conhecido como *Docker-in-Docker* ou *Sibling Containers*), os diretórios temporários gerados pelo Django (ex: `/tmp/tmpxxxxx`) só existem dentro do container do Django. O daemon do Docker no host tentará mapear esse caminho a partir do host, resultando em pastas vazias `/app` e falhas de correção por arquivos não encontrados.
+* **A Solução**:
+  1. Compartilhe um diretório de arquivos temporários comum entre o host e o container do Django. Por exemplo, mapeando o volume `-v /tmp/autograder:/tmp/autograder` no comando de inicialização do container Django.
+  2. Defina a variável de ambiente `AUTOGRADER_TMP_DIR=/tmp/autograder` no container do Django. O motor de correção foi atualizado para ler essa variável e gerar as pastas temporárias nesse caminho compartilhado, fazendo com que a correspondência de volumes funcione de forma transparente tanto no host quanto no container.
+
+### 2. Persistência e Locks do SQLite
+* **O Problema**: O SQLite é sensível a bloqueios de arquivos em volumes compartilhados. Se a pasta raiz com o `db.sqlite3` for montada de fora do container em sistemas com sistemas de arquivos de rede ou virtualização, o SQLite pode falhar com erros de gravação.
+* **A Solução**: Se for implantar em produção com Docker, prefira passar as variáveis de ambiente necessárias para conectar a um banco de dados externo como PostgreSQL ou MariaDB (conforme detalhado no warnings acima), ou utilize um volume nomeado do Docker dedicado para o SQLite (ex: `docker run -v db_data:/app/db.sqlite3`), sem mapear diretamente a pasta do host.
+
+### 3. Timeout e Prevenção de Loops Infinitos
+* Foi adicionado um timeout manual de **5 segundos** por caso de teste no [grader/runner.py](file:///Users/joni/Documents/edx-autograder/grader/runner.py). Isso impede que submissões com loops infinitos travem os containers indefinidamente e consumam todos os recursos de CPU do servidor remoto da USP.
+
+
+* obs: mudar no edx a url do exercício "Par ou Impar?" para o padrão antigo "introcomp2024/paridade"

@@ -12,20 +12,87 @@ import urllib.parse
 import hmac
 import hashlib
 import base64
+import requests
+from requests_oauthlib import OAuth1
 from .models import Aluno, Submissao
 
 LTI_KEY = os.environ.get('LTI_CONSUMER_KEY', 'minha_chave_edx_usp')
 LTI_SECRET = os.environ.get('LTI_SHARED_SECRET', 'meu_segredo_super_seguro')
+
 
 def escape(text):
     """Codificação RFC 3986 (O padrão exigido pela matemática do OAuth 1.0)"""
     return urllib.parse.quote(str(text), safe='~')
 
 
+def enviar_nota_ao_edx(lis_outcome_service_url, lis_result_sourcedid, nota_decimal, client_key, client_secret):
+    """
+    Envia a nota do aluno de volta para o LMS (EdX/Moodle) via LTI Outcomes 1.1 (XML SOAP).
+    nota_decimal deve ser um valor de 0.0 a 1.0.
+    """
+    if not lis_outcome_service_url or not lis_result_sourcedid:
+        print("LTI Outcomes: lis_outcome_service_url ou lis_result_sourcedid não informados. Ignorando envio de nota.")
+        return False
+
+    import uuid
+    message_id = uuid.uuid4().hex
+
+    xml_data = (
+        '<?xml version="1.0" encoding="UTF-8"?>\n'
+        '<imsx_POXEnvelopeRequest xmlns="http://www.imsglobal.org/services/ltiv1p1/xsd/imsoms_v1p0">\n'
+        '  <imsx_POXHeader>\n'
+        '    <imsx_POXRequestHeaderInfo>\n'
+        '      <imsx_version>V1.0</imsx_version>\n'
+        f'      <imsx_messageIdentifier>{message_id}</imsx_messageIdentifier>\n'
+        '    </imsx_POXRequestHeaderInfo>\n'
+        '  </imsx_POXHeader>\n'
+        '  <imsx_POXBody>\n'
+        '    <replaceResultRequest>\n'
+        '      <resultRecord>\n'
+        '        <sourcedGUID>\n'
+        f'          <sourcedId>{lis_result_sourcedid}</sourcedId>\n'
+        '        </sourcedGUID>\n'
+        '        <result>\n'
+        '          <resultScore>\n'
+        '            <language>en</language>\n'
+        f'            <textString>{nota_decimal:.4f}</textString>\n'
+        '          </resultScore>\n'
+        '        </result>\n'
+        '      </resultRecord>\n'
+        '    </replaceResultRequest>\n'
+        '  </imsx_POXBody>\n'
+        '</imsx_POXEnvelopeRequest>'
+    )
+
+    encoded_xml = xml_data.encode('utf-8')
+    body_hash = base64.b64encode(hashlib.sha1(encoded_xml).digest()).decode('utf-8')
+
+    auth = OAuth1(
+        client_key,
+        client_secret,
+        signature_method='HMAC-SHA1'
+    )
+
+    headers = {'Content-Type': 'application/xml'}
+
+    try:
+        print(f"LTI Outcomes: Iniciando envio de nota para {lis_outcome_service_url}...", flush=True)
+        response = requests.post(lis_outcome_service_url, data=encoded_xml, auth=auth, headers=headers, timeout=10)
+        print(f"\n=== LTI OUTCOMES GRADE PASSBACK ===", flush=True)
+        print(f"URL: {lis_outcome_service_url}", flush=True)
+        print(f"Status da Resposta: {response.status_code}", flush=True)
+        print(f"Resposta:\n{response.text}", flush=True)
+        print("===================================\n", flush=True)
+        return response.status_code == 200
+    except Exception as e:
+        print(f"Erro ao enviar nota via LTI Outcomes: {str(e)}", flush=True)
+        return False
+
+
 @csrf_exempt
 @xframe_options_exempt
 @require_POST
-def lti_grade_endpoint(request):
+def lti_grade_endpoint(request, course_id=None, exercise_id=None):
     # 1. Verifica se é uma submissão via formulário HTML (possui lti_token)
     lti_token = request.POST.get('lti_token')
     
@@ -108,6 +175,19 @@ def lti_grade_endpoint(request):
             }
         )
         
+        # Envia a nota de volta para a plataforma EdX
+        lis_outcome_service_url = lti_params.get('lis_outcome_service_url')
+        lis_result_sourcedid = lti_params.get('lis_result_sourcedid')
+        oauth_consumer_key = lti_params.get('oauth_consumer_key') or LTI_KEY
+        
+        enviar_nota_ao_edx(
+            lis_outcome_service_url=lis_outcome_service_url,
+            lis_result_sourcedid=lis_result_sourcedid,
+            nota_decimal=resultado_avaliacao.get('nota', 0.0),
+            client_key=oauth_consumer_key,
+            client_secret=LTI_SECRET
+        )
+        
         # Adiciona peso na escala 0-10 para facilitar a renderização no template
         for r in resultado_avaliacao['detalhes']:
             r['peso_exibicao'] = f"{r.get('peso', 0.0) * 10:.1f}"
@@ -180,10 +260,14 @@ def lti_grade_endpoint(request):
     aluno, _ = Aluno.objects.get_or_create(user_id=user_id)
     
     # Determina qual exercício avaliar
-    exercise_id = request.GET.get('exercise') or request.POST.get('custom_exercise_id') or request.POST.get('resource_link_id')
-    if not exercise_id:
+    exercise_id_resolved = exercise_id
+    if not exercise_id_resolved:
+        exercise_id_resolved = request.GET.get('exercise') or request.POST.get('custom_exercise_id') or request.POST.get('resource_link_id')
+    if not exercise_id_resolved:
         # fallback para testes locais rápidos se não enviado via LTI
-        exercise_id = "week_4_fatorial"
+        exercise_id_resolved = "week_4_fatorial"
+        
+    exercise_id = exercise_id_resolved
     
     # Verifica se já foi passado o código no request (chamada automatizada ou via script)
     student_code = request.POST.get('custom_student_code')
@@ -240,6 +324,18 @@ def lti_grade_endpoint(request):
                 'resultado_json': json.dumps(resultado_avaliacao)
             }
         )
+        
+        # Envia a nota de volta para a plataforma EdX caso os parâmetros tenham sido enviados
+        lis_outcome_service_url = request.POST.get('lis_outcome_service_url')
+        lis_result_sourcedid = request.POST.get('lis_result_sourcedid')
+        if lis_outcome_service_url and lis_result_sourcedid:
+            enviar_nota_ao_edx(
+                lis_outcome_service_url=lis_outcome_service_url,
+                lis_result_sourcedid=lis_result_sourcedid,
+                nota_decimal=resultado_avaliacao.get('nota', 0.0),
+                client_key=client_key or LTI_KEY,
+                client_secret=LTI_SECRET
+            )
         
         # Imprime no log para depuração local do servidor
         print("\n=== FEEDBACK GERADO ===")

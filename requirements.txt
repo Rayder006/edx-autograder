@@ -15,6 +15,7 @@ PyJWT==2.12.1
 PyLTI1p3==2.0.0
 pyparsing==3.3.2
 requests==2.33.1
+requests-oauthlib==2.0.0
 six==1.17.0
 sqlparse==0.5.5
 typing_extensions==4.15.0
