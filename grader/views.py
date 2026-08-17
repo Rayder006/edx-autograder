@@ -65,12 +65,12 @@ def enviar_nota_ao_edx(lis_outcome_service_url, lis_result_sourcedid, nota_decim
     )
 
     encoded_xml = xml_data.encode('utf-8')
-    body_hash = base64.b64encode(hashlib.sha1(encoded_xml).digest()).decode('utf-8')
 
     auth = OAuth1(
         client_key,
         client_secret,
-        signature_method='HMAC-SHA1'
+        signature_method='HMAC-SHA1',
+        force_include_body=True
     )
 
     headers = {'Content-Type': 'application/xml'}

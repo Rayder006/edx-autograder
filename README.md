@@ -63,7 +63,7 @@ O projeto possui um `Makefile` na raiz para simplificar todos os comandos do dia
 
 ---
 
-## 🧪 Como Testar e Simular Localmente
+## Como Testar e Simular Localmente
 
 Você tem duas formas de simular o comportamento da plataforma EdX na sua máquina:
 
