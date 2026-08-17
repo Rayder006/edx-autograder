@@ -34,6 +34,9 @@ def enviar_nota_ao_edx(lis_outcome_service_url, lis_result_sourcedid, nota_decim
         print("LTI Outcomes: lis_outcome_service_url ou lis_result_sourcedid não informados. Ignorando envio de nota.")
         return False
 
+    # Corrige a codificação do sourcedid (especialmente comum no Open edX que envia double-urlencoded)
+    lis_result_sourcedid = urllib.parse.unquote(lis_result_sourcedid)
+
     import uuid
     message_id = uuid.uuid4().hex
 
@@ -83,7 +86,10 @@ def enviar_nota_ao_edx(lis_outcome_service_url, lis_result_sourcedid, nota_decim
         print(f"Status da Resposta: {response.status_code}", flush=True)
         print(f"Resposta:\n{response.text}", flush=True)
         print("===================================\n", flush=True)
-        return response.status_code == 200
+        
+        import re
+        is_success = response.status_code == 200 and re.search(r'<imsx_codeMajor>\s*success\s*</imsx_codeMajor>', response.text, re.IGNORECASE) is not None
+        return is_success
     except Exception as e:
         print(f"Erro ao enviar nota via LTI Outcomes: {str(e)}", flush=True)
         return False
