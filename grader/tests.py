@@ -49,7 +49,7 @@ class LTIOutcomesTestCase(TestCase):
         self.assertIn('oauth_body_hash=', auth_header)
 
     @patch('grader.views.requests.post')
-    def test_enviar_nota_ao_edx_unquotes_sourcedid(self, mock_post):
+    def test_enviar_nota_ao_edx_preserves_sourcedid_raw(self, mock_post):
         # Set up mock response
         mock_response = requests.Response()
         mock_response.status_code = 200
@@ -73,7 +73,6 @@ class LTIOutcomesTestCase(TestCase):
         if isinstance(data, bytes):
             data = data.decode('utf-8')
             
-        # Verify the sourcedId in the XML body has been decoded (unquoted)
-        # %3A -> : and %2B -> +
-        self.assertIn('<sourcedId>course-v1:USP+ICCP1+2T2024:courses.edx.org-lti_consumer3:aluno_test</sourcedId>', data)
+        # Verify the sourcedId in the XML body is preserved raw (opaque)
+        self.assertIn('<sourcedId>course-v1%3AUSP%2BICCP1%2B2T2024:courses.edx.org-lti_consumer3:aluno_test</sourcedId>', data)
 

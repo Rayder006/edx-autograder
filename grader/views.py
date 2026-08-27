@@ -25,73 +25,116 @@ def escape(text):
     return urllib.parse.quote(str(text), safe='~')
 
 
-def enviar_nota_ao_edx(lis_outcome_service_url, lis_result_sourcedid, nota_decimal, client_key, client_secret):
+def enviar_nota_ao_edx(
+    lis_outcome_service_url,
+    lis_result_sourcedid,
+    nota_decimal,
+    client_key,
+    client_secret
+):
     """
-    Envia a nota do aluno de volta para o LMS (EdX/Moodle) via LTI Outcomes 1.1 (XML SOAP).
-    nota_decimal deve ser um valor de 0.0 a 1.0.
+    Envia a nota do aluno ao LMS via LTI 1.1 Basic Outcomes Service.
+    nota_decimal deve estar no intervalo [0.0, 1.0].
     """
+
     if not lis_outcome_service_url or not lis_result_sourcedid:
-        print("LTI Outcomes: lis_outcome_service_url ou lis_result_sourcedid não informados. Ignorando envio de nota.")
+        print(
+            "LTI Outcomes: lis_outcome_service_url ou "
+            "lis_result_sourcedid não informados."
+        )
         return False
 
-    # Corrige a codificação do sourcedid (especialmente comum no Open edX que envia double-urlencoded)
-    lis_result_sourcedid = urllib.parse.unquote(lis_result_sourcedid)
-
     import uuid
+
     message_id = uuid.uuid4().hex
 
+    # IMPORTANTE:
+    # O lis_result_sourcedid é opaco.
+    # NÃO fazer urllib.parse.unquote() aqui.
+    sourced_id = lis_result_sourcedid
+
     xml_data = (
-        '<?xml version="1.0" encoding="UTF-8"?>\n'
-        '<imsx_POXEnvelopeRequest xmlns="http://www.imsglobal.org/services/ltiv1p1/xsd/imsoms_v1p0">\n'
-        '  <imsx_POXHeader>\n'
-        '    <imsx_POXRequestHeaderInfo>\n'
-        '      <imsx_version>V1.0</imsx_version>\n'
-        f'      <imsx_messageIdentifier>{message_id}</imsx_messageIdentifier>\n'
-        '    </imsx_POXRequestHeaderInfo>\n'
-        '  </imsx_POXHeader>\n'
-        '  <imsx_POXBody>\n'
-        '    <replaceResultRequest>\n'
-        '      <resultRecord>\n'
-        '        <sourcedGUID>\n'
-        f'          <sourcedId>{lis_result_sourcedid}</sourcedId>\n'
-        '        </sourcedGUID>\n'
-        '        <result>\n'
-        '          <resultScore>\n'
-        '            <language>en</language>\n'
-        f'            <textString>{nota_decimal:.4f}</textString>\n'
-        '          </resultScore>\n'
-        '        </result>\n'
-        '      </resultRecord>\n'
-        '    </replaceResultRequest>\n'
-        '  </imsx_POXBody>\n'
+        '<?xml version="1.0" encoding="UTF-8"?>'
+        '<imsx_POXEnvelopeRequest '
+        'xmlns="http://www.imsglobal.org/services/ltiv1p1/xsd/imsoms_v1p0">'
+        '<imsx_POXHeader>'
+        '<imsx_POXRequestHeaderInfo>'
+        '<imsx_version>V1.0</imsx_version>'
+        f'<imsx_messageIdentifier>{message_id}</imsx_messageIdentifier>'
+        '</imsx_POXRequestHeaderInfo>'
+        '</imsx_POXHeader>'
+        '<imsx_POXBody>'
+        '<replaceResultRequest>'
+        '<resultRecord>'
+        '<sourcedGUID>'
+        f'<sourcedId>{sourced_id}</sourcedId>'
+        '</sourcedGUID>'
+        '<result>'
+        '<resultScore>'
+        '<language>en</language>'
+        f'<textString>{float(nota_decimal):.4f}</textString>'
+        '</resultScore>'
+        '</result>'
+        '</resultRecord>'
+        '</replaceResultRequest>'
+        '</imsx_POXBody>'
         '</imsx_POXEnvelopeRequest>'
     )
 
-    encoded_xml = xml_data.encode('utf-8')
+    encoded_xml = xml_data.encode("utf-8")
 
+    # Esta é a mesma configuração usada pelo Open edX
+    # para enviar Outcomes LTI 1.1.
     auth = OAuth1(
         client_key,
         client_secret,
-        signature_method='HMAC-SHA1',
-        force_include_body=True
+        signature_method="HMAC-SHA1",
+        force_include_body=True,
+        decoding=None,
     )
 
+    headers = {
+        "Content-Type": "application/xml",
+    }
+
     try:
-        print(f"LTI Outcomes: Iniciando envio de nota para {lis_outcome_service_url}...", flush=True)
-        response = requests.post(lis_outcome_service_url, data=encoded_xml, auth=auth, timeout=10)
-        print(f"\n=== LTI OUTCOMES GRADE PASSBACK ===", flush=True)
+        print("\n=== LTI OUTCOMES GRADE PASSBACK ===", flush=True)
         print(f"URL: {lis_outcome_service_url}", flush=True)
-        print(f"Status da Resposta: {response.status_code}", flush=True)
+        print(f"Consumer key: {client_key}", flush=True)
+        print(f"Source ID: {repr(sourced_id)}", flush=True)
+        print(f"Nota: {float(nota_decimal):.4f}", flush=True)
+        print(f"XML enviado:\n{xml_data}", flush=True)
+
+        response = requests.post(
+            lis_outcome_service_url,
+            data=encoded_xml,
+            auth=auth,
+            headers=headers,
+            timeout=15,
+        )
+
+        print(f"Status: {response.status_code}", flush=True)
+        print(f"Content-Type resposta: {response.headers.get('Content-Type')}", flush=True)
         print(f"Resposta:\n{response.text}", flush=True)
         print("===================================\n", flush=True)
-        
-        import re
-        is_success = response.status_code == 200 and re.search(r'<imsx_codeMajor>\s*success\s*</imsx_codeMajor>', response.text, re.IGNORECASE) is not None
-        return is_success
-    except Exception as e:
-        print(f"Erro ao enviar nota via LTI Outcomes: {str(e)}", flush=True)
+
+        if response.status_code != 200:
+            return False
+
+        # Resposta esperada do LTI Outcomes:
+        # <imsx_codeMajor>success</imsx_codeMajor>
+        return (
+            "<imsx_codeMajor>success</imsx_codeMajor>" in response.text
+            or "<imsx_codeMajor>\nsuccess\n</imsx_codeMajor>" in response.text
+        )
+
+    except requests.RequestException as e:
+        print(f"LTI Outcomes: erro HTTP: {e}", flush=True)
         return False
 
+    except Exception as e:
+        print(f"LTI Outcomes: erro inesperado: {e}", flush=True)
+        return False
 
 def obter_nome_exibicao(exercise_id):
     """

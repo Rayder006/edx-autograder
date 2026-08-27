@@ -19,11 +19,12 @@ payload = {
 
 auth_signer = OAuth1(LTI_KEY, client_secret=LTI_SECRET, signature_type='body')
 
-print(f"Disparando POST para {URL}...")
+if __name__ == '__main__':
+    print(f"Disparando POST para {URL}...")
 
-response = requests.post(URL, data=payload, auth=auth_signer)
-    
-print("\n=== RETORNO DO DJANGO ===")
-print(f"Status Code : {response.status_code}")
-print(f"Mensagem    : {response.text}")
-print("=========================")
+    response = requests.post(URL, data=payload, auth=auth_signer)
+        
+    print("\n=== RETORNO DO DJANGO ===")
+    print(f"Status Code : {response.status_code}")
+    print(f"Mensagem    : {response.text}")
+    print("=========================")
