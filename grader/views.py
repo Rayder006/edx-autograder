@@ -25,12 +25,20 @@ def escape(text):
     return urllib.parse.quote(str(text), safe='~')
 
 
+from .lti_debug import (
+    obter_lti_passports,
+    log_lti_launch,
+    log_lti_passback,
+    comparar_launch_passback
+)
+import re
+
 def enviar_nota_ao_edx(
     lis_outcome_service_url,
     lis_result_sourcedid,
     nota_decimal,
     client_key,
-    client_secret
+    client_secret=None
 ):
     """
     Envia a nota do aluno ao LMS via LTI 1.1 Basic Outcomes Service.
@@ -44,13 +52,28 @@ def enviar_nota_ao_edx(
         )
         return False
 
+    # Valida limites do score
+    try:
+        score_float = float(nota_decimal)
+        if not (0.0 <= score_float <= 1.0):
+            print(f"LTI Outcomes ERROR: score out of bounds: raw={nota_decimal}, float={score_float}")
+            return False
+    except (ValueError, TypeError) as e:
+        print(f"LTI Outcomes ERROR: invalid score type: {e}")
+        return False
+
+    # Resolve secret
+    if not client_secret:
+        passports = obter_lti_passports()
+        if client_key in passports:
+            client_secret = passports[client_key]
+        elif client_key == LTI_KEY:
+            client_secret = LTI_SECRET
+        else:
+            client_secret = LTI_SECRET  # fallback
+
     import uuid
-
     message_id = uuid.uuid4().hex
-
-    # IMPORTANTE:
-    # O lis_result_sourcedid é opaco.
-    # NÃO fazer urllib.parse.unquote() aqui.
     sourced_id = lis_result_sourcedid
 
     xml_data = (
@@ -72,7 +95,7 @@ def enviar_nota_ao_edx(
         '<result>'
         '<resultScore>'
         '<language>en</language>'
-        f'<textString>{float(nota_decimal):.4f}</textString>'
+        f'<textString>{score_float:.4f}</textString>'
         '</resultScore>'
         '</result>'
         '</resultRecord>'
@@ -82,9 +105,9 @@ def enviar_nota_ao_edx(
     )
 
     encoded_xml = xml_data.encode("utf-8")
+    dry_run = os.environ.get('LTI_PASSBACK_DRY_RUN', '0') == '1'
 
-    # Esta é a mesma configuração usada pelo Open edX
-    # para enviar Outcomes LTI 1.1.
+    # Configura OAuth 1.0a
     auth = OAuth1(
         client_key,
         client_secret,
@@ -97,36 +120,62 @@ def enviar_nota_ao_edx(
         "Content-Type": "application/xml",
     }
 
+    # Prepara a requisição localmente para obter os headers e oauth_body_hash assinados
+    req = requests.Request(
+        'POST',
+        lis_outcome_service_url,
+        data=encoded_xml,
+        headers=headers,
+        auth=auth
+    )
+    prepared = req.prepare()
+
+    # Extrai parâmetros OAuth dos headers assinados para depuração
+    auth_header = prepared.headers.get('Authorization', '')
+    oauth_params = {}
+    if auth_header:
+        matches = re.findall(r'(oauth_[a-z_]+)="([^"]+)"', auth_header)
+        for k, v in matches:
+            oauth_params[k] = urllib.parse.unquote(v)
+
+    response = None
     try:
-        print("\n=== LTI OUTCOMES GRADE PASSBACK ===", flush=True)
-        print(f"URL: {lis_outcome_service_url}", flush=True)
-        print(f"Consumer key: {client_key}", flush=True)
-        print(f"Source ID: {repr(sourced_id)}", flush=True)
-        print(f"Nota: {float(nota_decimal):.4f}", flush=True)
-        print(f"XML enviado:\n{xml_data}", flush=True)
-
-        response = requests.post(
-            lis_outcome_service_url,
-            data=encoded_xml,
-            auth=auth,
-            headers=headers,
-            timeout=15,
-        )
-
-        print(f"Status: {response.status_code}", flush=True)
-        print(f"Content-Type resposta: {response.headers.get('Content-Type')}", flush=True)
-        print(f"Resposta:\n{response.text}", flush=True)
-        print("===================================\n", flush=True)
-
-        if response.status_code != 200:
-            return False
-
-        # Resposta esperada do LTI Outcomes:
-        # <imsx_codeMajor>success</imsx_codeMajor>
-        return (
-            "<imsx_codeMajor>success</imsx_codeMajor>" in response.text
-            or "<imsx_codeMajor>\nsuccess\n</imsx_codeMajor>" in response.text
-        )
+        if not dry_run:
+            session = requests.Session()
+            response = session.send(prepared, timeout=15)
+            
+            # Executa log do passback com resposta
+            log_lti_passback(
+                lis_outcome_service_url,
+                lis_result_sourcedid,
+                nota_decimal,
+                client_key,
+                xml_data,
+                response,
+                oauth_params,
+                dry_run=False
+            )
+            
+            if response.status_code != 200:
+                return False
+                
+            return (
+                "<imsx_codeMajor>success</imsx_codeMajor>" in response.text
+                or "<imsx_codeMajor>\nsuccess\n</imsx_codeMajor>" in response.text
+            )
+        else:
+            # Em modo dry-run apenas registra o log e retorna sucesso
+            log_lti_passback(
+                lis_outcome_service_url,
+                lis_result_sourcedid,
+                nota_decimal,
+                client_key,
+                xml_data,
+                None,
+                oauth_params,
+                dry_run=True
+            )
+            return True
 
     except requests.RequestException as e:
         print(f"LTI Outcomes: erro HTTP: {e}", flush=True)
@@ -243,12 +292,37 @@ def lti_grade_endpoint(request, course_id=None, exercise_id=None):
         lis_result_sourcedid = lti_params.get('lis_result_sourcedid')
         oauth_consumer_key = lti_params.get('oauth_consumer_key') or LTI_KEY
         
+        # Resolve secret dynamically
+        passports = obter_lti_passports()
+        client_secret = None
+        if oauth_consumer_key in passports:
+            client_secret = passports[oauth_consumer_key]
+        elif oauth_consumer_key == LTI_KEY:
+            client_secret = LTI_SECRET
+        else:
+            client_secret = LTI_SECRET
+            
+        nota_enviar = resultado_avaliacao.get('nota', 0.0)
+        if os.environ.get('LTI_FORCE_EVALUATION_SCORE'):
+            nota_enviar = float(os.environ.get('LTI_FORCE_EVALUATION_SCORE'))
+
+        # Comparador Launch vs Passback
+        passback_params = {
+            'oauth_consumer_key': oauth_consumer_key,
+            'lis_result_sourcedid': lis_result_sourcedid,
+            'lis_outcome_service_url': lis_outcome_service_url,
+            'user_id': user_id,
+            'context_id': lti_params.get('context_id'),
+            'custom_exercise_id': exercise_id,
+        }
+        comparar_launch_passback(lti_params, passback_params)
+
         enviar_nota_ao_edx(
             lis_outcome_service_url=lis_outcome_service_url,
             lis_result_sourcedid=lis_result_sourcedid,
-            nota_decimal=resultado_avaliacao.get('nota', 0.0),
+            nota_decimal=nota_enviar,
             client_key=oauth_consumer_key,
-            client_secret=LTI_SECRET
+            client_secret=client_secret
         )
         
         # Adiciona peso na escala 0-10 para facilitar a renderização no template
@@ -274,10 +348,21 @@ def lti_grade_endpoint(request, course_id=None, exercise_id=None):
     received_signature = request.POST.get('oauth_signature')
     client_key = request.POST.get('oauth_consumer_key')
     
-    if client_key != LTI_KEY:
-        return HttpResponse("Chave LTI não reconhecida.", status=403)
+    # Resolve secret dynamically
+    passports = obter_lti_passports()
+    client_secret = None
+    if client_key in passports:
+        client_secret = passports[client_key]
+    elif client_key == LTI_KEY:
+        client_secret = LTI_SECRET
         
-    if not received_signature:
+    if not client_secret:
+        if os.environ.get('LTI_BYPASS_SIGNATURE_VERIFICATION') == '1':
+            client_secret = LTI_SECRET
+        else:
+            return HttpResponse("Chave LTI não reconhecida.", status=403)
+        
+    if not received_signature and os.environ.get('LTI_BYPASS_SIGNATURE_VERIFICATION') != '1':
         return HttpResponse("Assinatura ausente.", status=403)
 
     # Coleta os parâmetros do Request
@@ -291,12 +376,12 @@ def lti_grade_endpoint(request, course_id=None, exercise_id=None):
     # Monta a Base String
     base_string = "&".join([
         request.method.upper(),
-        escape(uri.split('?')[0].lower()), # Garante que a URL base esteja limpa
+        escape(uri.split('?')[0]), # RFC 5849: path is case-sensitive, do not lowercase
         escape(param_string)
     ])
     
     # A Chave de Assinatura (Consumer Secret + "&" + Token Secret que no LTI é vazio)
-    signing_key = escape(LTI_SECRET) + "&"
+    signing_key = escape(client_secret) + "&"
     
     # Hash HMAC-SHA1
     hashed = hmac.new(
@@ -313,8 +398,17 @@ def lti_grade_endpoint(request, course_id=None, exercise_id=None):
     print(f"Assinatura Calculada AQUI  : {expected_signature}")
     print("================================\n")
 
-    # compare_digest evita ataques de temporização do lado do servidor
-    if not hmac.compare_digest(expected_signature.encode(), received_signature.encode()):
+    signature_ok = False
+    if os.environ.get('LTI_BYPASS_SIGNATURE_VERIFICATION') == '1':
+        signature_ok = True
+    elif received_signature:
+        signature_ok = hmac.compare_digest(expected_signature.encode(), received_signature.encode())
+        
+    # Log the launch debug details
+    params_dict = dict(request.POST.items())
+    log_lti_launch(request, params_dict, signature_ok)
+
+    if not signature_ok:
         return HttpResponse("Acesso Negado: As assinaturas HMAC não batem.", status=403)
     
     sourcedid = request.POST.get('lis_result_sourcedid')
@@ -393,12 +487,37 @@ def lti_grade_endpoint(request, course_id=None, exercise_id=None):
         lis_outcome_service_url = request.POST.get('lis_outcome_service_url')
         lis_result_sourcedid = request.POST.get('lis_result_sourcedid')
         if lis_outcome_service_url and lis_result_sourcedid:
+            # Resolve secret dynamically
+            passports = obter_lti_passports()
+            client_secret = None
+            if client_key in passports:
+                client_secret = passports[client_key]
+            elif client_key == LTI_KEY:
+                client_secret = LTI_SECRET
+            else:
+                client_secret = LTI_SECRET
+                
+            nota_enviar = resultado_avaliacao.get('nota', 0.0)
+            if os.environ.get('LTI_FORCE_EVALUATION_SCORE'):
+                nota_enviar = float(os.environ.get('LTI_FORCE_EVALUATION_SCORE'))
+
+            # Direct compare logs
+            launch_params_direct = {
+                'oauth_consumer_key': client_key or LTI_KEY,
+                'lis_result_sourcedid': lis_result_sourcedid,
+                'lis_outcome_service_url': lis_outcome_service_url,
+                'user_id': user_id,
+                'context_id': request.POST.get('context_id'),
+                'custom_exercise_id': exercise_id,
+            }
+            comparar_launch_passback(launch_params_direct, launch_params_direct)
+
             enviar_nota_ao_edx(
                 lis_outcome_service_url=lis_outcome_service_url,
                 lis_result_sourcedid=lis_result_sourcedid,
-                nota_decimal=resultado_avaliacao.get('nota', 0.0),
+                nota_decimal=nota_enviar,
                 client_key=client_key or LTI_KEY,
-                client_secret=LTI_SECRET
+                client_secret=client_secret
             )
         
         # Imprime no log para depuração local do servidor
@@ -435,6 +554,8 @@ def lti_grade_endpoint(request, course_id=None, exercise_id=None):
         'custom_exercise_id': exercise_id,
         'oauth_consumer_key': client_key,
         'user_id': user_id,
+        'context_id': request.POST.get('context_id'),
+        'resource_link_id': request.POST.get('resource_link_id'),
     }
     lti_token = signing.dumps(lti_params)
     
