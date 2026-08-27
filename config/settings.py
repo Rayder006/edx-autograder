@@ -120,7 +120,12 @@ USE_TZ = True
 
 STATIC_URL = 'static/'
 
-# Suporte para proxies HTTPS (como Nginx, Cloudflare, etc.)
+# Tell Django to look for this header to detect an HTTPS connection
 SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
+
+# Correctly handle hostnames forwarded by the proxy for absolute URLs
 USE_X_FORWARDED_HOST = True
 
+# Ensure cookies are only sent over HTTPS connections
+SESSION_COOKIE_SECURE = True
+CSRF_COOKIE_SECURE = True

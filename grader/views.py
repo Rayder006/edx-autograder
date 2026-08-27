@@ -76,11 +76,9 @@ def enviar_nota_ao_edx(lis_outcome_service_url, lis_result_sourcedid, nota_decim
         force_include_body=True
     )
 
-    headers = {'Content-Type': 'application/xml'}
-
     try:
         print(f"LTI Outcomes: Iniciando envio de nota para {lis_outcome_service_url}...", flush=True)
-        response = requests.post(lis_outcome_service_url, data=encoded_xml, auth=auth, headers=headers, timeout=10)
+        response = requests.post(lis_outcome_service_url, data=encoded_xml, auth=auth, timeout=10)
         print(f"\n=== LTI OUTCOMES GRADE PASSBACK ===", flush=True)
         print(f"URL: {lis_outcome_service_url}", flush=True)
         print(f"Status da Resposta: {response.status_code}", flush=True)
@@ -114,6 +112,7 @@ def obter_nome_exibicao(exercise_id):
 def lti_grade_endpoint(request, course_id=None, exercise_id=None):
     # 1. Verifica se é uma submissão via formulário HTML (possui lti_token)
     lti_token = request.POST.get('lti_token')
+    print(request.POST)
     
     if lti_token:
         try:
@@ -124,6 +123,7 @@ def lti_grade_endpoint(request, course_id=None, exercise_id=None):
         except signing.BadSignature:
             return HttpResponse("Assinatura de sessão inválida.", status=403)
             
+        print(lti_params.items())
         exercise_id = lti_params.get('custom_exercise_id')
         user_id = lti_params.get('user_id', 'aluno_test')
         
@@ -533,4 +533,4 @@ def test_launcher_view(request):
 </body>
 </html>
 """
-    return HttpResponse(html_content, content_type="text/html; charset=utf-8")
+    return HttpResponse(html_content, content_type="text/html; charset=utf-8", status=200)
