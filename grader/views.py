@@ -1,20 +1,28 @@
-from .runner import avaliar_no_docker_com_json
 from django.conf import settings
 import os
 import json
-from django.http import HttpResponse
-from django.views.decorators.csrf import csrf_exempt
-from django.views.decorators.http import require_POST
-from django.views.decorators.clickjacking import xframe_options_exempt
-from django.core import signing
-from django.shortcuts import render
+import re
 import urllib.parse
 import hmac
 import hashlib
 import base64
 import requests
 from requests_oauthlib import OAuth1
+from django.http import HttpResponse
+from django.views.decorators.csrf import csrf_exempt
+from django.views.decorators.http import require_POST
+from django.views.decorators.clickjacking import xframe_options_exempt
+from django.core import signing
+from django.shortcuts import render
 from .models import Aluno, Submissao
+from .runner import avaliar_no_docker_com_json
+from .pytest_runner import avaliar_com_pytest
+from .lti_debug import (
+    obter_lti_passports,
+    log_lti_launch,
+    log_lti_passback,
+    comparar_launch_passback
+)
 
 LTI_KEY = os.environ.get('LTI_CONSUMER_KEY', 'minha_chave_edx_usp')
 LTI_SECRET = os.environ.get('LTI_SHARED_SECRET', 'meu_segredo_super_seguro')
@@ -25,13 +33,24 @@ def escape(text):
     return urllib.parse.quote(str(text), safe='~')
 
 
-from .lti_debug import (
-    obter_lti_passports,
-    log_lti_launch,
-    log_lti_passback,
-    comparar_launch_passback
-)
-import re
+def executar_avaliacao(student_code, exercise_id, config_exercicio):
+    """
+    Ponto central de despacho do motor de correção.
+
+    Por padrão usa o motor Pytest (exercises/test_<exercise_id>.py).
+    Faz fallback para o motor Docker legado se:
+      - AUTOGRADER_ENGINE=docker (variável de ambiente), ou
+      - não existir arquivo de teste Pytest para o exercício.
+    """
+    engine = os.environ.get("AUTOGRADER_ENGINE", "pytest")
+    if engine == "pytest":
+        base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        test_spec_path = os.path.join(base_dir, "exercises", f"test_{exercise_id}.py")
+        if os.path.exists(test_spec_path):
+            return avaliar_com_pytest(student_code, exercise_id)
+
+    # Fallback: motor Docker com JSON
+    return avaliar_no_docker_com_json(student_code, config_exercicio)
 
 def enviar_nota_ao_edx(
     lis_outcome_service_url,
@@ -247,8 +266,8 @@ def lti_grade_endpoint(request, course_id=None, exercise_id=None):
         # Bloqueia re-submissão caso o aluno já tenha nota máxima (10.0) salva
         try:
             submissao_existente = Submissao.objects.get(aluno=aluno, exercise_id=exercise_id)
-            if submissao_existente.nota >= 10.0:
-                resultado_avaliacao = json.loads(submissao_existente.resultado_json)
+            if submissao_existente.maior_nota >= 10.0:
+                resultado_avaliacao = submissao_existente.resultado_json if isinstance(submissao_existente.resultado_json, dict) else json.loads(submissao_existente.resultado_json)
                 
                 # Adiciona peso formatado para exibição se necessário
                 for r in resultado_avaliacao.get('detalhes', []):
@@ -260,7 +279,7 @@ def lti_grade_endpoint(request, course_id=None, exercise_id=None):
                     'lti_token': lti_token,
                     'student_code': submissao_existente.student_code,
                     'resultado': resultado_avaliacao,
-                    'nota_10': 10.0,
+                    'nota_10': submissao_existente.maior_nota,
                     'passou_count': len(resultado_avaliacao.get('detalhes', [])),
                     'total_count': len(resultado_avaliacao.get('detalhes', [])),
                 }
@@ -268,24 +287,35 @@ def lti_grade_endpoint(request, course_id=None, exercise_id=None):
         except Submissao.DoesNotExist:
             pass
 
-        # Executa no Docker
-        resultado_avaliacao = avaliar_no_docker_com_json(student_code, config_exercicio)
+        # Executa a avaliação (Pytest Runner por padrão, ou fallback Docker)
+        resultado_avaliacao = executar_avaliacao(student_code, exercise_id, config_exercicio)
         
         # Prepara estatísticas de exibição e nota
         nota_10 = round(resultado_avaliacao['nota'] * 10, 1)
         passou_count = sum(1 for r in resultado_avaliacao['detalhes'] if r.get('passou'))
         total_count = len(resultado_avaliacao['detalhes'])
         
-        # Salva ou atualiza a submissão no banco de dados local
-        submissao, _ = Submissao.objects.update_or_create(
-            aluno=aluno,
-            exercise_id=exercise_id,
-            defaults={
-                'nota': nota_10,
-                'student_code': student_code,
-                'resultado_json': json.dumps(resultado_avaliacao)
-            }
-        )
+        # Salva ou atualiza a submissão no banco de dados local com maior_nota e tentativas
+        submissao_existente = Submissao.objects.filter(aluno=aluno, exercise_id=exercise_id).first()
+        if submissao_existente:
+            maior_nota = max(nota_10, submissao_existente.maior_nota)
+            submissao_existente.nota = nota_10
+            submissao_existente.maior_nota = maior_nota
+            submissao_existente.tentativas = submissao_existente.tentativas + 1
+            submissao_existente.student_code = student_code
+            submissao_existente.resultado_json = resultado_avaliacao
+            submissao_existente.save()
+            submissao = submissao_existente
+        else:
+            submissao = Submissao.objects.create(
+                aluno=aluno,
+                exercise_id=exercise_id,
+                nota=nota_10,
+                maior_nota=nota_10,
+                tentativas=1,
+                student_code=student_code,
+                resultado_json=resultado_avaliacao
+            )
         
         # Envia a nota de volta para a plataforma EdX
         lis_outcome_service_url = lti_params.get('lis_outcome_service_url')
@@ -302,7 +332,7 @@ def lti_grade_endpoint(request, course_id=None, exercise_id=None):
         else:
             client_secret = LTI_SECRET
             
-        nota_enviar = resultado_avaliacao.get('nota', 0.0)
+        nota_enviar = submissao.maior_nota / 10.0
         if os.environ.get('LTI_FORCE_EVALUATION_SCORE'):
             nota_enviar = float(os.environ.get('LTI_FORCE_EVALUATION_SCORE'))
 
@@ -442,8 +472,8 @@ def lti_grade_endpoint(request, course_id=None, exercise_id=None):
             
         config_exercicio = todos_os_testes[exercise_id]
         
-        # Chama o motor Docker
-        resultado_avaliacao = avaliar_no_docker_com_json(student_code, config_exercicio)
+        # Chama o motor de avaliação (Pytest ou Docker)
+        resultado_avaliacao = executar_avaliacao(student_code, exercise_id, config_exercicio)
         
         # Constrói o relatório detalhado no formato original (devolve texto puro)
         feedback_lines = ["O resultado dos testes com seu programa foi:\n"]
@@ -531,8 +561,8 @@ def lti_grade_endpoint(request, course_id=None, exercise_id=None):
     # Verifica se já existe uma submissão para este aluno e exercício
     try:
         submissao_salva = Submissao.objects.get(aluno=aluno, exercise_id=exercise_id)
-        resultado_json = json.loads(submissao_salva.resultado_json)
-        nota_10 = submissao_salva.nota
+        resultado_json = submissao_salva.resultado_json if isinstance(submissao_salva.resultado_json, dict) else json.loads(submissao_salva.resultado_json)
+        nota_10 = submissao_salva.maior_nota
         student_code = submissao_salva.student_code
         passou_count = sum(1 for r in resultado_json.get('detalhes', []) if r.get('passou'))
         total_count = len(resultado_json.get('detalhes', []))

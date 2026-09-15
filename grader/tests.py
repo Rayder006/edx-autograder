@@ -293,3 +293,127 @@ class LTIOutcomesIntegrationTestCase(TestCase):
         passports = obter_lti_passports()
         self.assertEqual(passports.get('key1'), 'secret1')
         self.assertEqual(passports.get('key2'), 'secret2')
+
+class EvaluatorTestCase(TestCase):
+    def test_bateria_all_passed(self):
+        from grader.evaluator import calcular_nota_baterias
+        config = {
+            "tipo": "script",
+            "baterias": [
+                {
+                    "nome": "bateria_1",
+                    "descricao": "Bateria 1",
+                    "peso": 0.8,
+                    "testes": [{"input": "1"}, {"input": "2"}]
+                }
+            ]
+        }
+        resultados = [
+            {"bateria_idx": 0, "passou": True},
+            {"bateria_idx": 0, "passou": True}
+        ]
+        res = calcular_nota_baterias(config, resultados)
+        self.assertEqual(res["nota"], 0.8)
+        self.assertTrue(res["baterias"][0]["passou"])
+
+    def test_bateria_one_failed_gets_zero(self):
+        from grader.evaluator import calcular_nota_baterias
+        config = {
+            "tipo": "script",
+            "baterias": [
+                {
+                    "nome": "bateria_digitos",
+                    "descricao": "Checando dígitos",
+                    "peso": 0.8,
+                    "testes": [{"input": str(i)} for i in range(7)]
+                }
+            ]
+        }
+        # 6 pass, 1 fails -> battery gets 0.0!
+        resultados = [{"bateria_idx": 0, "passou": True} for _ in range(6)]
+        resultados.append({"bateria_idx": 0, "passou": False})
+        
+        res = calcular_nota_baterias(config, resultados)
+        self.assertEqual(res["nota"], 0.0)
+        self.assertFalse(res["baterias"][0]["passou"])
+        self.assertEqual(res["baterias"][0]["nota_obtida"], 0.0)
+
+    def test_multiple_baterias_partial_success(self):
+        from grader.evaluator import calcular_nota_baterias
+        config = {
+            "tipo": "script",
+            "baterias": [
+                {
+                    "nome": "bateria_1",
+                    "descricao": "Dígito dezenas",
+                    "peso": 0.8,
+                    "testes": [{"input": "12"}, {"input": "23"}]
+                },
+                {
+                    "nome": "bateria_2",
+                    "descricao": "Mensagem formato",
+                    "peso": 0.2,
+                    "testes": [{"input": "1"}]
+                }
+            ]
+        }
+        # Battery 1 passes, Battery 2 fails
+        resultados = [
+            {"bateria_idx": 0, "passou": True},
+            {"bateria_idx": 0, "passou": True},
+            {"bateria_idx": 1, "passou": False}
+        ]
+        res = calcular_nota_baterias(config, resultados)
+        self.assertEqual(res["nota"], 0.8)
+        self.assertTrue(res["baterias"][0]["passou"])
+        self.assertFalse(res["baterias"][1]["passou"])
+
+    def test_extrair_lista_testes(self):
+        from grader.evaluator import extrair_lista_testes
+        config = {
+            "tipo": "script",
+            "baterias": [
+                {
+                    "nome": "bat1",
+                    "peso": 0.8,
+                    "testes": [{"input": "10"}, {"input": "20"}]
+                }
+            ]
+        }
+        planos = extrair_lista_testes(config)
+        self.assertEqual(len(planos), 2)
+        self.assertEqual(planos[0]["_bateria_nome"], "bat1")
+        self.assertEqual(planos[0]["_bateria_peso"], 0.8)
+
+class PytestRunnerTestCase(TestCase):
+    def test_avaliar_com_pytest_script(self):
+        from grader.pytest_runner import avaliar_com_pytest
+        codigo_aluno = (
+            "n = int(input())\n"
+            "d = (n // 10) % 10\n"
+            "print(f'O dígito das dezenas é {d}')\n"
+        )
+        res = avaliar_com_pytest(codigo_aluno, "week_2_dezenas")
+        self.assertTrue(res["sucesso"])
+        self.assertEqual(res["nota"], 1.0)
+        self.assertTrue(len(res["baterias"]) >= 1)
+
+    def test_avaliar_com_pytest_funcao(self):
+        from grader.pytest_runner import avaliar_com_pytest
+        codigo_aluno = (
+            "def fizzbuzz(n):\n"
+            "    if n % 3 == 0 and n % 5 == 0:\n"
+            "        return 'FizzBuzz'\n"
+            "    elif n % 3 == 0:\n"
+            "        return 'Fizz'\n"
+            "    elif n % 5 == 0:\n"
+            "        return 'Buzz'\n"
+            "    else:\n"
+            "        return n\n"
+        )
+        res = avaliar_com_pytest(codigo_aluno, "week_5_fizzbuzz_funcao")
+        self.assertTrue(res["sucesso"])
+        self.assertEqual(res["nota"], 1.0)
+        self.assertEqual(len(res["baterias"]), 4)
+
+

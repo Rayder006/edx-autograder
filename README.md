@@ -188,3 +188,60 @@ O Django executa o código do aluno invocando um container efêmero (`python:3.1
 
 > [!IMPORTANT]
 > ** Esse corretor aceita requisições HTTP e HTTPS. Para usar esse corretor em iframe, use o mesmo tipo de requisição que a plataforma que está utilizando para evitar 'Mixed Content Error' (mais especificamente, 'Mixed Active Content')! (O padrão do EdX é https, então certifique-se de usar as rotas https no edx)
+
+---
+
+## Atualizações Recentes (set/2026)
+
+- **Novo motor de correção baseado em Pytest**: os testes agora são escritos em Python puro (pasta `exercises/`) usando `@pytest.mark.bateria` e `@pytest.mark.parametrize`, substituindo o formato JSON anterior. O motor antigo (`runner.py` + `tests.json`) permanece como fallback.
+- **Regra "tudo-ou-nada" por bateria**: cada exercício é dividido em baterias de testes com pesos pré-definidos (ex.: 0.8 e 0.2). O aluno recebe o peso da bateria apenas se acertar **todos** os casos daquela bateria.
+- **Suporte a PostgreSQL**: o sistema agora suporta PostgreSQL em produção (recomendado). SQLite continua funcionando em desenvolvimento.
+- **Armazenamento otimizado**: apenas 1 registro por aluno por exercício — a maior nota obtida é preservada e enviada ao EdX via LTI.
+
+---
+
+## Checklist para Colocar em Produção
+
+### 1. Configure as variáveis de ambiente
+
+Copie o arquivo `.env.example` para `.env` na raiz do projeto e preencha os valores reais:
+
+```bash
+cp .env.example .env
+```
+
+O `.env.example` é um **template** — ele mostra quais variáveis precisam ser definidas, mas com valores fictícios. **Nunca use os valores de exemplo em produção.** As variáveis mais importantes são:
+
+| Variável | O que mudar |
+|---|---|
+| `DJANGO_SECRET_KEY` | Gere uma chave aleatória longa (ex.: `python -c "import secrets; print(secrets.token_hex(50))"`) |
+| `DEBUG` | Manter `False` em produção |
+| `ALLOWED_HOSTS` | Substituir `autograder.suauniversidade.edu.br` pelo **domínio real do servidor** (ex.: `autograder.ime.usp.br`) |
+| `POSTGRES_PASSWORD` | Senha forte para o banco de dados |
+| `LTI_PASSPORTS` | Chave e segredo combinados com o EdX (formato `chave:segredo`) |
+
+### 2. Suba o banco de dados e aplique as migrações
+
+```bash
+# Sobe o PostgreSQL via Docker Compose
+docker-compose up -d db
+
+# Aplica as migrações no banco
+python manage.py migrate
+```
+
+### 3. Colete os arquivos estáticos (se usar servidor web como Nginx)
+
+```bash
+python manage.py collectstatic
+```
+
+### 4. Suba a aplicação
+
+```bash
+docker-compose up -d
+```
+
+> [!WARNING]
+> Lembre-se de que `ALLOWED_HOSTS` com o valor `autograder.suauniversidade.edu.br` é apenas um placeholder. Se esse valor não for atualizado para o domínio real do servidor, o Django rejeitará todas as requisições com erro HTTP 400.
+

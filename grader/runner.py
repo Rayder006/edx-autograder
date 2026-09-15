@@ -6,6 +6,8 @@ import re
 import unicodedata
 import time
 
+from .evaluator import extrair_lista_testes, calcular_nota_baterias
+
 def normalizar(texto):
     if not texto:
         return ""
@@ -50,7 +52,7 @@ def avaliar_no_docker_com_json(codigo_aluno, config_exercicio):
     resultados = []
     
     tipo = config_exercicio.get("tipo", "script")
-    testes = config_exercicio.get("testes", [])
+    testes = extrair_lista_testes(config_exercicio)
     
     for i, teste in enumerate(testes):
         peso = teste.get("peso", 0.0)
@@ -172,7 +174,11 @@ def avaliar_no_docker_com_json(codigo_aluno, config_exercicio):
                         "saida_aluno": saida,
                         "esperado": esperado,
                         "peso": peso,
-                        "descricao": descricao
+                        "descricao": descricao,
+                        "bateria_idx": teste.get("_bateria_idx"),
+                        "bateria_nome": teste.get("_bateria_nome"),
+                        "bateria_peso": teste.get("_bateria_peso"),
+                        "bateria_desc": teste.get("_bateria_desc")
                     })
                 elif tipo == "funcao":
                     try:
@@ -185,7 +191,11 @@ def avaliar_no_docker_com_json(codigo_aluno, config_exercicio):
                             "saida_aluno": objeto_retornado,
                             "esperado": esperado,
                             "peso": peso,
-                            "descricao": descricao
+                            "descricao": descricao,
+                            "bateria_idx": teste.get("_bateria_idx"),
+                            "bateria_nome": teste.get("_bateria_nome"),
+                            "bateria_peso": teste.get("_bateria_peso"),
+                            "bateria_desc": teste.get("_bateria_desc")
                         })
                     except Exception as json_err:
                         resultados.append({
@@ -195,6 +205,10 @@ def avaliar_no_docker_com_json(codigo_aluno, config_exercicio):
                             "esperado": esperado,
                             "peso": peso,
                             "descricao": descricao,
+                            "bateria_idx": teste.get("_bateria_idx"),
+                            "bateria_nome": teste.get("_bateria_nome"),
+                            "bateria_peso": teste.get("_bateria_peso"),
+                            "bateria_desc": teste.get("_bateria_desc"),
                             "erro": f"Erro ao decodificar a saída da função (esperado JSON): {str(json_err)}"
                         })
                 
@@ -206,6 +220,10 @@ def avaliar_no_docker_com_json(codigo_aluno, config_exercicio):
                     "passou": False,
                     "peso": peso,
                     "descricao": descricao,
+                    "bateria_idx": teste.get("_bateria_idx"),
+                    "bateria_nome": teste.get("_bateria_nome"),
+                    "bateria_peso": teste.get("_bateria_peso"),
+                    "bateria_desc": teste.get("_bateria_desc"),
                     "erro": stderr_output if stderr_output else str(e)
                 })
             except Exception as ex:
@@ -214,11 +232,12 @@ def avaliar_no_docker_com_json(codigo_aluno, config_exercicio):
                     "passou": False,
                     "peso": peso,
                     "descricao": descricao,
+                    "bateria_idx": teste.get("_bateria_idx"),
+                    "bateria_nome": teste.get("_bateria_nome"),
+                    "bateria_peso": teste.get("_bateria_peso"),
+                    "bateria_desc": teste.get("_bateria_desc"),
                     "erro": f"Erro inesperado durante a execução do container: {str(ex)}"
                 })
                 
-    # 4. Calcula a nota final do exercício (soma ponderada dos pesos dos testes que passaram)
-    acertos_ponderados = sum(r.get("peso", 0.0) for r in resultados if r.get("passou", False))
-    nota = round(acertos_ponderados, 2)
-    
-    return {"sucesso": True, "nota": nota, "detalhes": resultados}
+    # 4. Calcula a nota final do exercício via Evaluator por Baterias
+    return calcular_nota_baterias(config_exercicio, resultados)

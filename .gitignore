@@ -3,6 +3,7 @@
 venv/
 env/
 
+
 # Python
 __pycache__/
 *.pyc
@@ -15,3 +16,5 @@ db.sqlite3
 .DS_Store
 .exercicios-coursera/
 grader/runner_antigo.py
+nerso.bundle
+erro.txt
