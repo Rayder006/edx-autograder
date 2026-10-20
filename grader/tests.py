@@ -1,13 +1,16 @@
 import os
 os.environ['OAUTHLIB_INSECURE_TRANSPORT'] = '1'
 
-from django.test import TestCase
+from django.test import TestCase, override_settings
 from unittest.mock import patch
 import requests
-import os
+import pytest
 import threading
 import time
-from grader.views import enviar_nota_ao_edx
+import base64
+import hashlib
+import hmac
+from grader.views import LTI_KEY, LTI_SECRET, enviar_nota_ao_edx, escape
 from grader.mock_lti_server import ReusableTCPServer, MockLTIServerHandler, MOCK_CONSUMER_KEY, MOCK_SHARED_SECRET
 from grader.lti_debug import obter_lti_passports
 
@@ -75,12 +78,67 @@ class LTIOutcomesTestCase(TestCase):
         # Verify the sourcedId in the XML body is preserved raw (opaque)
         self.assertIn('<sourcedId>course-v1%3AUSP%2BICCP1%2B2T2024:courses.edx.org-lti_consumer3:aluno_test</sourcedId>', data)
 
+    @patch('grader.views.requests.Session.send')
+    def test_enviar_nota_ao_edx_escapes_xml_sourcedid(self, mock_send):
+        mock_response = requests.Response()
+        mock_response.status_code = 200
+        mock_response._content = b'<imsx_codeMajor>success</imsx_codeMajor>'
+        mock_send.return_value = mock_response
+
+        self.assertTrue(enviar_nota_ao_edx(
+            'https://dummy.edx.org/grades', 'aluno&teste', 0.5,
+            'key_test', 'secret_test'
+        ))
+        body = mock_send.call_args.args[0].body
+        if isinstance(body, bytes):
+            body = body.decode('utf-8')
+        self.assertIn('<sourcedId>aluno&amp;teste</sourcedId>', body)
+
+
+class LTILaunchSignatureTestCase(TestCase):
+    key = 'launch_key'
+    secret = 'launch_secret'
+
+    def _assinar(self, url, params):
+        encoded_params = [(escape(k), escape(v)) for k, v in params.items()]
+        encoded_params.sort()
+        parameter_string = '&'.join(f'{key}={value}' for key, value in encoded_params)
+        base_string = '&'.join(['POST', escape(url.split('?')[0]), escape(parameter_string)])
+        signing_key = escape(self.secret) + '&'
+        digest = hmac.new(
+            signing_key.encode('utf-8'), base_string.encode('utf-8'), hashlib.sha1
+        ).digest()
+        return base64.b64encode(digest).decode('utf-8')
+
+    def test_launch_with_exercise_query_parameter_has_valid_signature(self):
+        url = 'http://testserver/lti/avaliacao/?exercise=week_4_fatorial'
+        payload = {
+            'oauth_consumer_key': self.key,
+            'oauth_nonce': 'query-param-test-nonce',
+            'oauth_signature_method': 'HMAC-SHA1',
+            'oauth_timestamp': '1792180000',
+            'oauth_version': '1.0',
+            'lti_message_type': 'basic-lti-launch-request',
+            'lti_version': 'LTI-1p0',
+            'resource_link_id': 'week_4_fatorial',
+            'user_id': 'query-param-test-user',
+        }
+        payload['oauth_signature'] = self._assinar(
+            url, {**payload, 'exercise': 'week_4_fatorial'}
+        )
+
+        with patch.dict(os.environ, {'LTI_PASSPORTS': f'{self.key}:{self.secret}'}):
+            response = self.client.post('/lti/avaliacao/?exercise=week_4_fatorial', payload)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'name="lti_token"')
+
 class LTIOutcomesIntegrationTestCase(TestCase):
     @classmethod
     def setUpClass(cls):
         super().setUpClass()
-        cls.server_port = 9996  # Using different port than default mock server
-        cls.mock_server = ReusableTCPServer(("127.0.0.1", cls.server_port), MockLTIServerHandler)
+        cls.mock_server = ReusableTCPServer(("127.0.0.1", 0), MockLTIServerHandler)
+        cls.server_port = cls.mock_server.server_address[1]
         cls.server_thread = threading.Thread(target=cls.mock_server.serve_forever)
         cls.server_thread.daemon = True
         cls.server_thread.start()
@@ -95,6 +153,9 @@ class LTIOutcomesIntegrationTestCase(TestCase):
         super().tearDownClass()
 
     def setUp(self):
+        self.env_patch = patch.dict(os.environ, {'LTI_PASSPORTS': '', 'LTI_PASSBACK_DRY_RUN': '0'})
+        self.env_patch.start()
+        self.addCleanup(self.env_patch.stop)
         # Clear LTI_PASSPORTS env before each test
         if 'LTI_PASSPORTS' in os.environ:
             del os.environ['LTI_PASSPORTS']
@@ -206,6 +267,7 @@ class LTIOutcomesIntegrationTestCase(TestCase):
         comparar_launch_passback(launch, passback)
 
     # Scenario 20: Dry-run
+    @override_settings(DEBUG=True)
     def test_dry_run_mode(self):
         os.environ['LTI_PASSBACK_DRY_RUN'] = '1'
         # Calling with invalid URL to verify it's not even hitting the network
@@ -239,12 +301,13 @@ class LTIOutcomesIntegrationTestCase(TestCase):
         self.assertFalse(res)
 
     # Scenarios 26-28: timeout and other edge cases
-    def test_request_timeout(self):
-        # Use an unreachable IP/port that drops requests to trigger a timeout
+    @patch('grader.views.requests.Session.send', side_effect=requests.Timeout('Simulated timeout'))
+    def test_request_timeout(self, mock_send):
         res = enviar_nota_ao_edx("http://10.255.255.1:9999/grades", 'aluno_test', 0.85, self.client_key, self.client_secret)
         self.assertFalse(res)
 
-    @patch('grader.views.avaliar_no_docker_com_json')
+    @override_settings(DEBUG=True)
+    @patch('grader.views.executar_avaliacao')
     def test_replay_mechanism(self, mock_eval):
         mock_eval.return_value = {
             'nota': 0.9,
@@ -254,7 +317,7 @@ class LTIOutcomesIntegrationTestCase(TestCase):
             ]
         }
         from grader.lti_debug import executar_replay
-        # Create a temp json file inside BASE_DIR
+        # O replay de teste nunca sobrescreve um arquivo do diretório de trabalho.
         replay_data = {
             'oauth_consumer_key': self.client_key,
             'lis_result_sourcedid': 'course-v1%3AUSP%2BICCP1%2B2T2024:courses.edx.org-lti_consumer3:aluno_test',
@@ -265,8 +328,10 @@ class LTIOutcomesIntegrationTestCase(TestCase):
             'custom_exercise_id': 'week_4_fatorial'
         }
         
-        from django.conf import settings
-        temp_path = os.path.join(settings.BASE_DIR, 'replay_test.json')
+        import tempfile
+        temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(temporary.cleanup)
+        temp_path = os.path.join(temporary.name, 'replay_test.json')
         import json
         with open(temp_path, 'w', encoding='utf-8') as f:
             json.dump(replay_data, f)
@@ -385,6 +450,7 @@ class EvaluatorTestCase(TestCase):
         self.assertEqual(planos[0]["_bateria_nome"], "bat1")
         self.assertEqual(planos[0]["_bateria_peso"], 0.8)
 
+@pytest.mark.docker
 class PytestRunnerTestCase(TestCase):
     def test_avaliar_com_pytest_script(self):
         from grader.pytest_runner import avaliar_com_pytest

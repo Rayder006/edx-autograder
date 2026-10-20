@@ -31,6 +31,7 @@ def extrair_lista_testes(config_exercicio):
                 t_copy["_bateria_idx"] = idx_bat
                 testes_planos.append(t_copy)
     elif "testes" in config_exercicio:
+        indices = {}
         for idx_t, teste in enumerate(config_exercicio["testes"]):
             t_copy = dict(teste)
             nome_bat = t_copy.get("bloco") or t_copy.get("bateria") or f"bateria_{idx_t + 1}"
@@ -39,7 +40,7 @@ def extrair_lista_testes(config_exercicio):
             t_copy["_bateria_nome"] = nome_bat
             t_copy["_bateria_peso"] = peso_bat
             t_copy["_bateria_desc"] = desc_bat
-            t_copy["_bateria_idx"] = 0 if "bloco" not in t_copy and "bateria" not in t_copy else idx_t
+            t_copy["_bateria_idx"] = indices.setdefault(nome_bat, len(indices))
             testes_planos.append(t_copy)
 
     return testes_planos
@@ -89,11 +90,15 @@ def calcular_nota_baterias(config_exercicio, resultados_testes):
         ]
         
         # Se não encontrou por idx/nome (ex: formato antigo sem filtro), usa correspondência por caso de teste
-        if not testes_da_bateria and idx_bat < len(resultados_testes):
+        if 'baterias' not in config_exercicio and not testes_da_bateria and idx_bat < len(resultados_testes):
             testes_da_bateria = [resultados_testes[idx_bat]]
 
         # Regra Tudo-ou-Nada: Todos os testes da bateria devem passar
-        todos_passaram = len(testes_da_bateria) > 0 and all(r.get("passou", False) for r in testes_da_bateria)
+        expected_count = len(bat.get('testes', [])) if 'baterias' in config_exercicio else len(testes_da_bateria)
+        todos_passaram = (
+            len(testes_da_bateria) > 0 and len(testes_da_bateria) == expected_count
+            and all(r.get("passou", False) for r in testes_da_bateria)
+        )
         nota_bateria = peso_bat if todos_passaram else 0.0
 
         soma_pesos_totais += peso_bat

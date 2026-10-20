@@ -121,6 +121,17 @@
             font-size: 14px;
         }
 
+        #code-editor {
+            width: 100%;
+            height: 350px;
+            padding: 12px;
+            resize: vertical;
+            border: 0;
+            background: #05070c;
+            color: var(--text-primary);
+            font: 14px var(--font-mono);
+        }
+
         /* File Upload */
         .dropzone {
             border: 2px dashed var(--border-color);
@@ -396,7 +407,7 @@
                     <!-- Drag and drop zone -->
                     <div class="dropzone" id="dropzone">
                         <p>Arraste seu arquivo <span>.py</span> aqui ou <span>clique para selecionar</span></p>
-                        <input type="file" id="file-input" accept=".py" style="display: none;">
+                        <input type="file" id="file-input" name="code_file" form="submit-form" accept=".py" style="display: none;">
                         <div class="file-info" id="file-info"></div>
                     </div>
 
@@ -404,10 +415,9 @@
                         <!-- Django CSRF token, kept standard just in case -->
                         {% csrf_token %}
                         <input type="hidden" name="lti_token" value="{{ lti_token }}">
-                        <input type="hidden" name="custom_student_code" id="custom_student_code">
-
                         <div id="editor-container">
-                            <div id="editor">{% if student_code %}{{ student_code }}{% else %}# Escreva seu código aqui...{% endif %}</div>
+                            <textarea id="code-editor" name="custom_student_code" placeholder="# Escreva seu código aqui..." aria-label="Código Python" spellcheck="false">{{ student_code }}</textarea>
+                            <div id="editor" hidden></div>
                         </div>
 
                         <div style="margin-top: 15px;">
@@ -432,10 +442,12 @@
                         </span>
                     </div>
 
+                    {% if resultado.sucesso != False %}
                     <div class="results-header">
                         <div>
-                            <p style="font-size: 0.9rem; font-weight: 500;">Nota Final</p>
+                            <p style="font-size: 0.9rem; font-weight: 500;">Nota desta tentativa</p>
                             <p style="font-size: 0.75rem; color: var(--text-secondary);">Escala de 0 a 10.0</p>
+                            <p style="font-size: 0.85rem;">Maior nota salva: {{ maior_nota }}</p>
                         </div>
                         <div class="score-box">
                             <div class="score-value {% if nota_10 >= 9.9 %}passed-all{% elif nota_10 >= 5.0 %}passed-some{% else %}failed-all{% endif %}">
@@ -444,6 +456,33 @@
                             <div class="score-label">pontos</div>
                         </div>
                     </div>
+                    {% endif %}
+
+                    {% if resultado.erro %}
+                    <pre class="error-box" role="alert">{{ resultado.erro }}</pre>
+                    {% endif %}
+
+                    {% if passback_failed %}
+                    <div role="alert">
+                        <p>A nota foi salva aqui, mas o EdX ainda não confirmou o recebimento. Tente reenviá-la.</p>
+                    </div>
+                    {% endif %}
+                    {% if can_retry_passback %}
+                        <form method="POST">
+                            <input type="hidden" name="lti_token" value="{{ lti_token }}">
+                            <input type="hidden" name="retry_passback" value="1">
+                            <button class="btn" type="submit">Reenviar nota ao EdX</button>
+                        </form>
+                    {% endif %}
+
+                    {% for bateria in resultado.baterias %}
+                    <p>
+                        <span class="status-badge {% if bateria.passou %}pass{% else %}fail{% endif %}">
+                            {% if bateria.passou %}Passou{% else %}Falhou{% endif %}
+                        </span>
+                        {{ bateria.descricao }} [{{ bateria.peso_exibicao }} pontos, tudo ou nada]
+                    </p>
+                    {% endfor %}
 
                     <div class="test-list">
                         {% for t in resultado.detalhes %}
@@ -456,7 +495,7 @@
                                     <span class="test-title">{{ t.descricao }}</span>
                                 </div>
                                 <div style="display: flex; align-items: center; gap: 10px;">
-                                    <span class="test-weight">[{{ t.peso_exibicao }} pts]</span>
+                                    {% if t.peso_exibicao %}<span class="test-weight">[{{ t.peso_exibicao }} pts]</span>{% endif %}
                                     <svg class="arrow-icon" width="12" height="12" viewBox="0 0 24 24">
                                         <path d="M7 10l5 5 5-5z" />
                                     </svg>
@@ -487,7 +526,7 @@
                         {% endfor %}
                     </div>
 
-                    {% if nota_10 < 10.0 %}
+                    {% if not nota_maxima %}
                     <div style="margin-top: 15px; border-top: 1px solid var(--border-color); padding-top: 15px;">
                         <button type="button" class="btn" onclick="showEditor()" style="width: 100%; background-color: #374151;">
                             Enviar Novamente
@@ -505,15 +544,17 @@
         charset="utf-8"></script>
     <script>
         // Inicializar o Ace Editor
-        var editor = ace.edit("editor");
-        editor.setTheme("ace/theme/tomorrow_night");
-        editor.session.setMode("ace/mode/python");
-        editor.setOptions({
-            fontSize: "14px",
-            showPrintMargin: false,
-            enableBasicAutocompletion: true,
-            enableLiveAutocompletion: true
-        });
+        const codeEditor = document.getElementById('code-editor');
+        var editor = null;
+        if (window.ace) {
+            document.getElementById('editor').hidden = false;
+            editor = ace.edit("editor");
+            editor.setValue(codeEditor.value, -1);
+            editor.setTheme("ace/theme/tomorrow_night");
+            editor.session.setMode("ace/mode/python");
+            editor.setOptions({fontSize: "14px", showPrintMargin: false});
+            codeEditor.hidden = true;
+        }
 
         // Manipulação de arquivos via upload / dropzone
         const dropzone = document.getElementById('dropzone');
@@ -553,7 +594,9 @@
 
             const reader = new FileReader();
             reader.onload = function (e) {
-                editor.setValue(e.target.result, -1);
+                if (editor) editor.setValue(e.target.result, -1);
+                codeEditor.value = e.target.result;
+                fileInput.value = '';
                 fileInfo.textContent = `Arquivo carregado com sucesso: ${file.name} (${(file.size / 1024).toFixed(2)} KB)`;
                 fileInfo.style.display = 'block';
             };
@@ -566,13 +609,13 @@
 
         form.addEventListener('submit', (e) => {
             // Obter código do editor e colocar no input oculto
-            const code = editor.getValue();
-            if (!code.trim() || code.startsWith('# Escreva seu código aqui')) {
+            const code = editor ? editor.getValue() : codeEditor.value;
+            if (!code.trim() && !fileInput.files.length) {
                 e.preventDefault();
                 alert('Por favor, escreva ou envie algum código antes de submeter.');
                 return;
             }
-            document.getElementById('custom_student_code').value = code;
+            codeEditor.value = code;
 
             // Ativar loading state
             submitBtn.classList.add('loading');
@@ -589,8 +632,12 @@
             document.getElementById('results-panel').style.display = 'none';
             const editorPanel = document.getElementById('editor-panel');
             editorPanel.style.display = 'block';
-            editor.resize();
-            editor.focus();
+            if (editor) {
+                editor.resize();
+                editor.focus();
+            } else {
+                codeEditor.focus();
+            }
         }
     </script>
 </body>

@@ -1,243 +1,125 @@
-import docker
-import tempfile
-import os
+"""Motor legado JSON, mantido para seleção explícita pela infraestrutura."""
 import json
-import re
-import unicodedata
+import logging
+import os
+import tempfile
 import time
 
+import docker
+
+from .docker_runtime import host_path, runner_user
 from .evaluator import extrair_lista_testes, calcular_nota_baterias
+from .output_validation import normalizar, validar_saida_script
 
-def normalizar(texto):
-    if not texto:
-        return ""
-    # Remove acentos e caracteres diacríticos
-    texto = "".join(c for c in unicodedata.normalize('NFD', texto) if unicodedata.category(c) != 'Mn')
-    # Converte para minúsculas
-    texto = texto.lower()
-    # Substitui pontuações por espaços simples para isolar palavras
-    texto = re.sub(r'[.,;:!?\-()\[\]{}"\']', ' ', texto)
-    return texto
+logger = logging.getLogger(__name__)
 
-def validar_saida_script(saida_aluno, esperado):
-    saida_norm = normalizar(saida_aluno)
-    esp_norm = normalizar(esperado)
-    
-    # Tratamento para saídas com múltiplas linhas significativas (ex: n_impares, retângulos)
-    if "\n" in esperado.strip():
-        linhas_esperadas = [normalizar(l) for l in esperado.strip().split("\n") if l.strip()]
-        idx_atual = 0
-        for linha in linhas_esperadas:
-            # Busca a linha inteira a partir do índice atual na saída do aluno
-            match = re.search(r'\b' + re.escape(linha) + r'\b', saida_norm[idx_atual:])
-            if not match:
-                return False
-            idx_atual += match.end()
-        return True
-    
-    # Caso geral de única linha ou resposta única
-    palavras_esperadas = esp_norm.split()
-    if not palavras_esperadas:
-        return True
-    
-    # Monta uma regex para buscar as palavras esperadas na ordem em que aparecem
-    regex_busca = r'\b' + r'\b.*\b'.join(re.escape(w) for w in palavras_esperadas) + r'\b'
-    return re.search(regex_busca, saida_norm) is not None
 
 def avaliar_no_docker_com_json(codigo_aluno, config_exercicio):
-    """
-    Roda o código do aluno se adaptando ao tipo (script de I/O ou Função Pura).
-    """
-    client = docker.from_env()
-    resultados = []
-    
-    tipo = config_exercicio.get("tipo", "script")
-    testes = extrair_lista_testes(config_exercicio)
-    
-    for i, teste in enumerate(testes):
-        peso = teste.get("peso", 0.0)
-        descricao = teste.get("descricao", f"Caso de teste {i+1}")
-        
-        base_tmp_dir = os.environ.get('AUTOGRADER_TMP_DIR', None)
-        with tempfile.TemporaryDirectory(dir=base_tmp_dir) as tmpdir:
-            # 1. Salva o código do aluno
-            caminho_codigo = os.path.join(tmpdir, "solution.py")
-            with open(caminho_codigo, "w", encoding='utf-8') as f:
-                f.write(codigo_aluno)
+    client = None
+    try:
+        client = docker.from_env(timeout=5)
+        client.ping()
+        return _evaluate(client, codigo_aluno, config_exercicio)
+    except (docker.errors.DockerException, OSError, ValueError):
+        logger.exception('Falha operacional no avaliador legado.')
+        return {
+            'sucesso': False, 'nota': 0, 'detalhes': [], 'baterias': [],
+            'erro': 'O Docker do corretor está indisponível. Avise o professor.',
+        }
+    finally:
+        if client is not None:
+            client.close()
 
-            comando_bash = ""
-            
-            # 2. Prepara a execução baseado no tipo de exercício
-            if tipo == "script":
-                caminho_input = os.path.join(tmpdir, "input.txt")
-                with open(caminho_input, "w", encoding='utf-8') as f:
-                    f.write(teste["input"])
-                
-                comando_bash = "python /app/solution.py < /app/input.txt"
-                
-            elif tipo == "funcao":
-                nome_funcao = config_exercicio["nome_funcao"]
-                args = teste["args"]
-                
-                caminho_wrapper = os.path.join(tmpdir, "wrapper.py")
-                # O wrapper importa a solução, roda a função e imprime o retorno serializado em JSON
-                wrapper_code = (
-                    "import json\n"
-                    "import sys\n"
-                    "import traceback\n"
-                    "try:\n"
-                    f"    from solution import {nome_funcao}\n"
-                    f"    args = {repr(args)}\n"
-                    f"    resultado = {nome_funcao}(*args)\n"
-                    "    print(json.dumps(resultado))\n"
-                    "except Exception as e:\n"
-                    "    sys.stderr.write(traceback.format_exc())\n"
-                    "    sys.exit(1)\n"
+
+def _evaluate(client, code, config):
+    results = []
+    tipo = config.get('tipo', 'script')
+    image = os.environ.get('AUTOGRADER_RUNNER_IMAGE', 'edx-autograder-web:latest')
+    base = os.environ.get('AUTOGRADER_TMP_DIR') or None
+    if base:
+        os.makedirs(base, mode=0o700, exist_ok=True)
+    total_deadline = time.monotonic() + 30
+    for index, test in enumerate(extrair_lista_testes(config)):
+        if time.monotonic() >= total_deadline:
+            report = calcular_nota_baterias(config, results)
+            report['erro'] = 'Tempo limite total de execução excedido (30 segundos).'
+            return report
+        result = {
+            'caso': index + 1, 'passou': False,
+            'peso': test.get('peso', 0), 'descricao': test.get('descricao', f'Caso {index + 1}'),
+            'bateria_idx': test.get('_bateria_idx'), 'bateria_nome': test.get('_bateria_nome'),
+            'bateria_peso': test.get('_bateria_peso'), 'bateria_desc': test.get('_bateria_desc'),
+            'esperado': test.get('expected'),
+        }
+        with tempfile.TemporaryDirectory(dir=base) as directory:
+            with open(os.path.join(directory, 'solution.py'), 'w', encoding='utf-8') as file:
+                file.write(code)
+            if tipo == 'script':
+                with open(os.path.join(directory, 'input.txt'), 'w', encoding='utf-8') as file:
+                    file.write(test.get('input', ''))
+                with open(os.path.join(directory, 'wrapper.py'), 'w', encoding='utf-8') as file:
+                    file.write(
+                        'import builtins, runpy\n'
+                        'original_input = builtins.input\n'
+                        'builtins.input = lambda prompt="": original_input()\n'
+                        'runpy.run_path("/app/solution.py", run_name="__main__")\n'
+                    )
+                command = ['sh', '-c', 'python /app/wrapper.py < /app/input.txt']
+            elif tipo == 'funcao':
+                name = config['nome_funcao']
+                if not name.isidentifier():
+                    raise ValueError('Nome de função inválido na configuração.')
+                wrapper = (
+                    'import json\n'
+                    f'from solution import {name}\n'
+                    f'print(json.dumps({name}(*{test.get("args", [])!r})))\n'
                 )
-                
-                with open(caminho_wrapper, "w", encoding='utf-8') as f:
-                    f.write(wrapper_code)
-                
-                comando_bash = "python /app/wrapper.py"
-
-            # 3. Dispara o Container do Docker
+                with open(os.path.join(directory, 'wrapper.py'), 'w', encoding='utf-8') as file:
+                    file.write(wrapper)
+                command = ['python', '/app/wrapper.py']
+            else:
+                raise ValueError('Tipo de exercício não suportado.')
+            container = None
             try:
                 container = client.containers.run(
-                    image="python:3.13-alpine",
-                    command=f"sh -c '{comando_bash}'",
-                    volumes={tmpdir: {'bind': '/app', 'mode': 'ro'}},
-                    working_dir="/app",
-                    network_disabled=True,
-                    mem_limit="128m",
-                    detach=True,
-                    stdout=True,
-                    stderr=True
+                    image=image, command=['timeout', '--signal=KILL', '7s', *command],
+                    volumes={host_path(directory): {'bind': '/app', 'mode': 'ro'}},
+                    working_dir='/app', user=runner_user(directory),
+                    network_disabled=True, mem_limit='128m', pids_limit=64,
+                    nano_cpus=1_000_000_000, read_only=True,
+                    tmpfs={'/tmp': 'rw,nosuid,size=32m'},
+                    cap_drop=['ALL'], security_opt=['no-new-privileges:true'],
+                    labels={'edx-autograder.role': 'evaluation'},
+                    environment={'PYTHONDONTWRITEBYTECODE': '1'}, detach=True,
                 )
-                
-                # Aguarda com timeout de segurança (5 segundos) para evitar loops infinitos
-                timeout = 5
-                intervalo = 0.1
-                tempo_decorrido = 0.0
-                passou_limite = False
-                
+                deadline = min(time.monotonic() + 5, total_deadline)
                 while True:
                     container.reload()
-                    status = container.status
-                    if status != "running":
+                    if container.status != 'running':
                         break
-                    if tempo_decorrido >= timeout:
-                        passou_limite = True
-                        break
-                    time.sleep(intervalo)
-                    tempo_decorrido += intervalo
-                
-                if passou_limite:
+                    if time.monotonic() >= deadline:
+                        raise TimeoutError('Tempo limite excedido (5 segundos). Verifique loops infinitos.')
+                    time.sleep(0.1)
+                state = container.attrs['State']
+                output = container.logs(stdout=True, stderr=False, tail=100).decode('utf-8', errors='replace').strip()
+                error = container.logs(stdout=False, stderr=True, tail=100).decode('utf-8', errors='replace').strip()
+                if state.get('OOMKilled'):
+                    result['erro'] = 'Limite de memória excedido (128 MB).'
+                elif state['ExitCode']:
+                    result['erro'] = error or f"Programa terminou com código {state['ExitCode']}."
+                else:
                     try:
-                        container.kill()
-                    except Exception:
-                        pass
-                    try:
-                        container.remove(force=True)
-                    except Exception:
-                        pass
-                    raise TimeoutError("Tempo limite de execução excedido (5 segundos). O programa pode conter um loop infinito.")
-                
-                # Coleta a saída e código de status do container
-                exit_code = container.attrs['State']['ExitCode']
-                logs_stdout = container.logs(stdout=True, stderr=False)
-                logs_stderr = container.logs(stdout=False, stderr=True)
-                
-                # Remove o container manualmente já que remove=True não foi usado
-                try:
+                        result['saida_aluno'] = json.loads(output) if tipo == 'funcao' else output
+                        result['passou'] = (
+                            result['saida_aluno'] == test.get('expected') if tipo == 'funcao'
+                            else validar_saida_script(output, test.get('expected'))
+                        )
+                    except ValueError:
+                        result['erro'] = 'A função não retornou um resultado JSON válido.'
+            except TimeoutError as exc:
+                result['erro'] = str(exc)
+            finally:
+                if container is not None:
                     container.remove(force=True)
-                except Exception:
-                    pass
-                
-                if exit_code != 0:
-                    raise docker.errors.ContainerError(
-                        container=container,
-                        exit_status=exit_code,
-                        command=comando_bash,
-                        image="python:3.13-alpine",
-                        stderr=logs_stderr
-                    )
-                
-                saida = logs_stdout.decode('utf-8').strip()
-                esperado = teste.get("expected")
-                passou = False
-                
-                if tipo == "script":
-                    passou = validar_saida_script(saida, esperado)
-                    resultados.append({
-                        "caso": i + 1,
-                        "passou": passou,
-                        "saida_aluno": saida,
-                        "esperado": esperado,
-                        "peso": peso,
-                        "descricao": descricao,
-                        "bateria_idx": teste.get("_bateria_idx"),
-                        "bateria_nome": teste.get("_bateria_nome"),
-                        "bateria_peso": teste.get("_bateria_peso"),
-                        "bateria_desc": teste.get("_bateria_desc")
-                    })
-                elif tipo == "funcao":
-                    try:
-                        # Desserializa o resultado retornado pelo wrapper
-                        objeto_retornado = json.loads(saida)
-                        passou = (objeto_retornado == esperado)
-                        resultados.append({
-                            "caso": i + 1,
-                            "passou": passou,
-                            "saida_aluno": objeto_retornado,
-                            "esperado": esperado,
-                            "peso": peso,
-                            "descricao": descricao,
-                            "bateria_idx": teste.get("_bateria_idx"),
-                            "bateria_nome": teste.get("_bateria_nome"),
-                            "bateria_peso": teste.get("_bateria_peso"),
-                            "bateria_desc": teste.get("_bateria_desc")
-                        })
-                    except Exception as json_err:
-                        resultados.append({
-                            "caso": i + 1,
-                            "passou": False,
-                            "saida_aluno": saida,
-                            "esperado": esperado,
-                            "peso": peso,
-                            "descricao": descricao,
-                            "bateria_idx": teste.get("_bateria_idx"),
-                            "bateria_nome": teste.get("_bateria_nome"),
-                            "bateria_peso": teste.get("_bateria_peso"),
-                            "bateria_desc": teste.get("_bateria_desc"),
-                            "erro": f"Erro ao decodificar a saída da função (esperado JSON): {str(json_err)}"
-                        })
-                
-            except docker.errors.ContainerError as e:
-                # Trata erros de execução (syntax error ou exceções não capturadas no script)
-                stderr_output = e.stderr.decode('utf-8').strip()
-                resultados.append({
-                    "caso": i + 1,
-                    "passou": False,
-                    "peso": peso,
-                    "descricao": descricao,
-                    "bateria_idx": teste.get("_bateria_idx"),
-                    "bateria_nome": teste.get("_bateria_nome"),
-                    "bateria_peso": teste.get("_bateria_peso"),
-                    "bateria_desc": teste.get("_bateria_desc"),
-                    "erro": stderr_output if stderr_output else str(e)
-                })
-            except Exception as ex:
-                resultados.append({
-                    "caso": i + 1,
-                    "passou": False,
-                    "peso": peso,
-                    "descricao": descricao,
-                    "bateria_idx": teste.get("_bateria_idx"),
-                    "bateria_nome": teste.get("_bateria_nome"),
-                    "bateria_peso": teste.get("_bateria_peso"),
-                    "bateria_desc": teste.get("_bateria_desc"),
-                    "erro": f"Erro inesperado durante a execução do container: {str(ex)}"
-                })
-                
-    # 4. Calcula a nota final do exercício via Evaluator por Baterias
-    return calcular_nota_baterias(config_exercicio, resultados)
+        results.append(result)
+    return calcular_nota_baterias(config, results)

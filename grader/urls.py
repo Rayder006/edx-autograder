@@ -1,9 +1,9 @@
 from django.urls import path
-from django.conf import settings
 from . import views
 
 urlpatterns = [
     path('avaliacao/', views.lti_grade_endpoint, name='lti_grade_endpoint'),
+    path('avaliacao', views.lti_grade_endpoint, name='lti_grade_endpoint_no_slash'),
 ]
 
 # Mapeamento explícito das URLs antigas do EdX para as chaves internas do tests.json
@@ -44,6 +44,5 @@ for url_slug, internal_id in MAPEAMENTO_EXERCICIOS.items():
     urlpatterns.append(path(f"introcomp2024/{url_slug}", views.lti_grade_endpoint, {"exercise_id": internal_id}, name=f"lti_{url_slug}_no_slash"))
     urlpatterns.append(path(f"introcomp2024/{url_slug}/", views.lti_grade_endpoint, {"exercise_id": internal_id}, name=f"lti_{url_slug}"))
 
-# O simulador local de LTI só é registrado em ambiente de desenvolvimento (DEBUG = True)
-if settings.DEBUG:
-    urlpatterns.append(path('test-launcher/', views.test_launcher_view, name='test_launcher_view'))
+# A própria view bloqueia o simulador com HTTP 404 quando DEBUG=False.
+urlpatterns.append(path('test-launcher/', views.test_launcher_view, name='test_launcher_view'))

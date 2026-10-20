@@ -6,6 +6,11 @@ import hashlib
 import base64
 from django.conf import settings
 
+
+def debug_lti_habilitado():
+    """Evita registrar dados de launch/passback fora de uma investigação explícita."""
+    return os.environ.get('LTI_DEBUG', '').lower() in {'1', 'true', 'yes'}
+
 def mascarar_id(val):
     if not val:
         return ""
@@ -31,7 +36,10 @@ def obter_lti_passports():
     try:
         parsed = json.loads(passports_env)
         if isinstance(parsed, dict):
-            return {k.strip(): v.strip() for k, v in parsed.items()}
+            return {
+                k.strip(): v.strip() for k, v in parsed.items()
+                if isinstance(k, str) and isinstance(v, str) and k.strip() and v.strip()
+            }
     except json.JSONDecodeError:
         pass
         
@@ -43,13 +51,20 @@ def obter_lti_passports():
         if not part:
             continue
         subparts = part.split(':')
-        if len(subparts) >= 3:
+        if len(subparts) == 2:
+            k, v = (value.strip() for value in subparts)
+            if k and v:
+                passports[k] = v
+        elif len(subparts) >= 3:
             k = subparts[1].strip()
             v = ':'.join(subparts[2:]).strip()
-            passports[k] = v
+            if k and v:
+                passports[k] = v
     return passports
 
 def log_lti_launch(request, params, signature_ok):
+    if not debug_lti_habilitado():
+        return
     print("\n" + "="*60, flush=True)
     print("=== LTI LAUNCH DEBUG ===", flush=True)
     print(f"Timestamp: {time.strftime('%Y-%m-%d %H:%M:%S')}", flush=True)
@@ -87,6 +102,8 @@ def log_lti_passback(
     oauth_params=None,
     dry_run=False
 ):
+    if not debug_lti_habilitado():
+        return
     print("\n" + "="*60, flush=True)
     print("=== LTI OUTCOMES PASSBACK DEBUG ===", flush=True)
     print(f"TIMESTAMP: {time.strftime('%Y-%m-%d %H:%M:%S')}", flush=True)
@@ -172,6 +189,8 @@ def log_lti_passback(
     print("="*60 + "\n", flush=True)
 
 def comparar_launch_passback(launch_params, passback_params):
+    if not debug_lti_habilitado():
+        return
     print("\n" + "="*60, flush=True)
     print("=== LAUNCH vs PASSBACK COMPARISON ===", flush=True)
     
@@ -251,6 +270,9 @@ def executar_replay(replay_file_path, code=None, score=1.0):
             post_data[k] = v
             
     # Mock signature verification bypass na view se for execução do script
+    previous = {name: os.environ.get(name) for name in (
+        'LTI_BYPASS_SIGNATURE_VERIFICATION', 'LTI_FORCE_EVALUATION_SCORE',
+    )}
     os.environ['LTI_BYPASS_SIGNATURE_VERIFICATION'] = '1'
     
     try:
@@ -286,7 +308,8 @@ def executar_replay(replay_file_path, code=None, score=1.0):
         return sub_response.status_code == 200
         
     finally:
-        if 'LTI_BYPASS_SIGNATURE_VERIFICATION' in os.environ:
-            del os.environ['LTI_BYPASS_SIGNATURE_VERIFICATION']
-        if 'LTI_FORCE_EVALUATION_SCORE' in os.environ:
-            del os.environ['LTI_FORCE_EVALUATION_SCORE']
+        for name, value in previous.items():
+            if value is None:
+                os.environ.pop(name, None)
+            else:
+                os.environ[name] = value

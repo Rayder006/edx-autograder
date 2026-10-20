@@ -6,17 +6,23 @@ import urllib.parse
 import hmac
 import hashlib
 import base64
+import logging
+import xml.etree.ElementTree as ET
 import requests
 from requests_oauthlib import OAuth1
+from xml.sax.saxutils import escape as xml_escape
 from django.http import HttpResponse
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_POST
 from django.views.decorators.clickjacking import xframe_options_exempt
 from django.core import signing
 from django.shortcuts import render
+from django.db import transaction
 from .models import Aluno, Submissao
 from .runner import avaliar_no_docker_com_json
 from .pytest_runner import avaliar_com_pytest
+from .catalog import exercises
+from .submissions import save_submission, saved_result, display_result
 from .lti_debug import (
     obter_lti_passports,
     log_lti_launch,
@@ -24,8 +30,9 @@ from .lti_debug import (
     comparar_launch_passback
 )
 
-LTI_KEY = os.environ.get('LTI_CONSUMER_KEY', 'minha_chave_edx_usp')
-LTI_SECRET = os.environ.get('LTI_SHARED_SECRET', 'meu_segredo_super_seguro')
+logger = logging.getLogger(__name__)
+LTI_KEY = os.environ.get('LTI_CONSUMER_KEY', 'minha_chave_edx_usp' if settings.DEBUG else '')
+LTI_SECRET = os.environ.get('LTI_SHARED_SECRET', 'meu_segredo_super_seguro' if settings.DEBUG else '')
 
 
 def escape(text):
@@ -38,19 +45,15 @@ def executar_avaliacao(student_code, exercise_id, config_exercicio):
     Ponto central de despacho do motor de correção.
 
     Por padrão usa o motor Pytest (exercises/test_<exercise_id>.py).
-    Faz fallback para o motor Docker legado se:
-      - AUTOGRADER_ENGINE=docker (variável de ambiente), ou
-      - não existir arquivo de teste Pytest para o exercício.
+    O motor legado só é selecionado explicitamente com AUTOGRADER_ENGINE=docker.
     """
     engine = os.environ.get("AUTOGRADER_ENGINE", "pytest")
     if engine == "pytest":
-        base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-        test_spec_path = os.path.join(base_dir, "exercises", f"test_{exercise_id}.py")
-        if os.path.exists(test_spec_path):
-            return avaliar_com_pytest(student_code, exercise_id)
-
-    # Fallback: motor Docker com JSON
-    return avaliar_no_docker_com_json(student_code, config_exercicio)
+        return avaliar_com_pytest(student_code, exercise_id)
+    if engine == 'docker' and config_exercicio:
+        return avaliar_no_docker_com_json(student_code, config_exercicio)
+    return {'sucesso': False, 'nota': 0, 'detalhes': [], 'baterias': [],
+            'erro': 'Motor de correção ou exercício não configurado.'}
 
 def enviar_nota_ao_edx(
     lis_outcome_service_url,
@@ -89,11 +92,11 @@ def enviar_nota_ao_edx(
         elif client_key == LTI_KEY:
             client_secret = LTI_SECRET
         else:
-            client_secret = LTI_SECRET  # fallback
+            return False
 
     import uuid
     message_id = uuid.uuid4().hex
-    sourced_id = lis_result_sourcedid
+    sourced_id = xml_escape(str(lis_result_sourcedid))
 
     xml_data = (
         '<?xml version="1.0" encoding="UTF-8"?>'
@@ -124,7 +127,7 @@ def enviar_nota_ao_edx(
     )
 
     encoded_xml = xml_data.encode("utf-8")
-    dry_run = os.environ.get('LTI_PASSBACK_DRY_RUN', '0') == '1'
+    dry_run = settings.DEBUG and os.environ.get('LTI_PASSBACK_DRY_RUN', '0') == '1'
 
     # Configura OAuth 1.0a
     auth = OAuth1(
@@ -147,7 +150,11 @@ def enviar_nota_ao_edx(
         headers=headers,
         auth=auth
     )
-    prepared = req.prepare()
+    try:
+        prepared = req.prepare()
+    except (ValueError, requests.RequestException):
+        logger.exception('Não foi possível preparar o retorno de nota LTI.')
+        return False
 
     # Extrai parâmetros OAuth dos headers assinados para depuração
     auth_header = prepared.headers.get('Authorization', '')
@@ -160,8 +167,8 @@ def enviar_nota_ao_edx(
     response = None
     try:
         if not dry_run:
-            session = requests.Session()
-            response = session.send(prepared, timeout=15)
+            with requests.Session() as session:
+                response = session.send(prepared, timeout=15, allow_redirects=False)
             
             # Executa log do passback com resposta
             log_lti_passback(
@@ -178,9 +185,14 @@ def enviar_nota_ao_edx(
             if response.status_code != 200:
                 return False
                 
-            return (
-                "<imsx_codeMajor>success</imsx_codeMajor>" in response.text
-                or "<imsx_codeMajor>\nsuccess\n</imsx_codeMajor>" in response.text
+            try:
+                root = ET.fromstring(response.content)
+            except ET.ParseError:
+                return False
+            return any(
+                element.tag.rsplit('}', 1)[-1] == 'imsx_codeMajor'
+                and (element.text or '').strip() == 'success'
+                for element in root.iter()
             )
         else:
             # Em modo dry-run apenas registra o log e retorna sucesso
@@ -217,405 +229,201 @@ def obter_nome_exibicao(exercise_id):
     return exercise_id.replace('_', ' ').title()
 
 
+def _passback(params, submission):
+    url = params.get('lis_outcome_service_url')
+    sourcedid = params.get('lis_result_sourcedid')
+    if not url or not sourcedid:
+        return None
+    # Serializa passbacks do mesmo aluno/exercício. Uma resposta lenta de uma
+    # tentativa anterior não pode sobrescrever uma nota melhor no EdX.
+    with transaction.atomic():
+        current = Submissao.objects.select_for_update().get(pk=submission.pk)
+        score = current.maior_nota / 10.0
+        if settings.DEBUG and os.environ.get('LTI_FORCE_EVALUATION_SCORE'):
+            score = float(os.environ['LTI_FORCE_EVALUATION_SCORE'])
+        success = enviar_nota_ao_edx(url, sourcedid, score, params.get('oauth_consumer_key'))
+    if not success:
+        logger.warning('O EdX não confirmou o recebimento da nota.')
+    return success
+
+
+def _render_submission(request, params, token, code='', result=None, submission=None,
+                       passback_status=None, status=200):
+    result = display_result(result) if result is not None else None
+    details = result.get('detalhes', []) if result else []
+    return render(request, 'grader/index.html', {
+        'exercise_id': params['custom_exercise_id'],
+        'exercise_name': obter_nome_exibicao(params['custom_exercise_id']),
+        'lti_token': token,
+        'student_code': code,
+        'resultado': result,
+        'nota_10': round(result.get('nota', 0) * 10, 1) if result else 0,
+        'maior_nota': round(submission.maior_nota, 1) if submission else 0,
+        'nota_maxima': bool(submission and submission.maior_nota >= 10),
+        'passou_count': sum(1 for case in details if case.get('passou')),
+        'total_count': len(details),
+        'passback_failed': passback_status is False,
+        'can_retry_passback': bool(
+            submission and params.get('lis_outcome_service_url')
+            and params.get('lis_result_sourcedid') and passback_status is not True
+        ),
+    }, status=status)
+
+
+def _valid_launch(request):
+    from oauthlib.oauth1.rfc5849.signature import base_string_uri
+
+    key = request.POST.get('oauth_consumer_key')
+    secret = obter_lti_passports().get(key) or (LTI_SECRET if key and key == LTI_KEY else None)
+    bypass = settings.DEBUG and os.environ.get('LTI_BYPASS_SIGNATURE_VERIFICATION') == '1'
+    if not secret and not bypass:
+        return False
+    if bypass:
+        return True
+    if request.POST.get('oauth_signature_method') != 'HMAC-SHA1':
+        return False
+    received = request.POST.get('oauth_signature', '')
+    params = [
+        (escape(key), escape(value))
+        for query in (request.GET, request.POST)
+        for key, values in query.lists() if key != 'oauth_signature'
+        for value in values
+    ]
+    params.sort()
+    normalized = '&'.join(f'{key}={value}' for key, value in params)
+    base = '&'.join([
+        request.method.upper(), escape(base_string_uri(request.build_absolute_uri())),
+        escape(normalized),
+    ])
+    expected = base64.b64encode(hmac.new(
+        (escape(secret) + '&').encode(), base.encode(), hashlib.sha1
+    ).digest()).decode()
+    valid = hmac.compare_digest(expected.encode(), received.encode())
+    log_lti_launch(request, dict(request.POST.items()), valid)
+    return valid
+
+
 @csrf_exempt
 @xframe_options_exempt
 @require_POST
 def lti_grade_endpoint(request, course_id=None, exercise_id=None):
-    # 1. Verifica se é uma submissão via formulário HTML (possui lti_token)
-    lti_token = request.POST.get('lti_token')
-    print(request.POST)
-    
-    if lti_token:
+    token = request.POST.get('lti_token')
+    is_form = bool(token)
+    if is_form:
         try:
-            # Descriptografa e valida os dados de sessão LTI
-            lti_params = signing.loads(lti_token, max_age=3600)  # Válido por 1 hora
+            params = signing.loads(token, max_age=3600)
         except signing.SignatureExpired:
-            return HttpResponse("A sessão expirou. Por favor, recarregue a página no EdX.", status=403)
+            return HttpResponse('A sessão expirou. Recarregue a página no EdX.', status=403)
         except signing.BadSignature:
-            return HttpResponse("Assinatura de sessão inválida.", status=403)
-            
-        print(lti_params.items())
-        exercise_id = lti_params.get('custom_exercise_id')
-        user_id = lti_params.get('user_id', 'aluno_test')
-        
-        try:
-            aluno = Aluno.objects.get(user_id=user_id)
-        except Aluno.DoesNotExist:
-            return HttpResponse("Aluno não encontrado no banco de dados local.", status=400)
+            return HttpResponse('Assinatura de sessão inválida.', status=403)
+        if not isinstance(params, dict):
+            return HttpResponse('Sessão LTI inválida.', status=403)
+        exercise_id = params.get('custom_exercise_id')
+        user_id = params.get('user_id')
+    else:
+        if not _valid_launch(request):
+            return HttpResponse('Acesso negado: chave ou assinatura LTI inválida.', status=403)
+        exercise_id = (
+            exercise_id or request.GET.get('exercise')
+            or request.POST.get('custom_exercise_id') or request.POST.get('resource_link_id')
+        )
+        user_id = request.POST.get('user_id') or request.POST.get('lis_result_sourcedid')
+        params = {
+            key: request.POST.get(key) for key in (
+                'lis_result_sourcedid', 'lis_outcome_service_url', 'oauth_consumer_key',
+                'context_id', 'resource_link_id',
+            )
+        }
+        params.update(custom_exercise_id=exercise_id, user_id=user_id)
+        token = signing.dumps(params)
 
-        # Lê o código enviado pelo formulário ou via upload de arquivo
-        student_code = request.POST.get('custom_student_code', '')
+    if not user_id or len(user_id) > 255:
+        return HttpResponse('O launch LTI precisa identificar o aluno (user_id).', status=400)
+    if not isinstance(exercise_id, str) or not re.fullmatch(r'[A-Za-z0-9_]+', exercise_id):
+        return HttpResponse('Identificador de exercício inválido.', status=400)
+    try:
+        catalog = exercises()
+    except (OSError, ValueError):
+        logger.exception('Falha ao carregar o catálogo de exercícios.')
+        return HttpResponse('O catálogo de exercícios está indisponível. Avise o professor.', status=503)
+    if exercise_id not in catalog:
+        return HttpResponse('Exercício não configurado no autograder.', status=400)
+
+    aluno, _ = Aluno.objects.get_or_create(user_id=user_id)
+    submission = Submissao.objects.filter(aluno=aluno, exercise_id=exercise_id).first()
+    is_submission = is_form or 'custom_student_code' in request.POST
+    if not is_submission:
+        return _render_submission(
+            request, params, token,
+            code=submission.student_code if submission else '',
+            result=saved_result(submission) if submission else None,
+            submission=submission,
+        )
+
+    # Uma nota máxima não deve impedir a retransmissão de um passback que falhou.
+    reuse = submission and (
+        submission.maior_nota >= 10 or request.POST.get('retry_passback') == '1'
+    )
+    if reuse:
+        result = saved_result(submission)
+        code = submission.student_code
+    else:
+        code = request.POST.get('custom_student_code', '')
         if 'code_file' in request.FILES:
             try:
-                student_code = request.FILES['code_file'].read().decode('utf-8', errors='replace')
-            except Exception:
-                pass
-                
-        caminho_tests_json = os.path.join(settings.BASE_DIR, 'tests.json')
-        if not os.path.exists(caminho_tests_json):
-            return HttpResponse("Arquivo tests.json de configuração não encontrado.", status=500)
-            
-        with open(caminho_tests_json, 'r', encoding='utf-8') as f:
-            todos_os_testes = json.load(f)
-            
-        if exercise_id not in todos_os_testes:
-            return HttpResponse(f"Exercício '{exercise_id}' não configurado no autograder.", status=400)
-            
-        config_exercicio = todos_os_testes[exercise_id]
-        
-        # Bloqueia re-submissão caso o aluno já tenha nota máxima (10.0) salva
+                code = request.FILES['code_file'].read().decode('utf-8-sig')
+            except UnicodeDecodeError:
+                return HttpResponse('O arquivo Python deve usar codificação UTF-8.', status=400)
+        if not code.strip():
+            return HttpResponse('Envie um código Python para correção.', status=400)
         try:
-            submissao_existente = Submissao.objects.get(aluno=aluno, exercise_id=exercise_id)
-            if submissao_existente.maior_nota >= 10.0:
-                resultado_avaliacao = submissao_existente.resultado_json if isinstance(submissao_existente.resultado_json, dict) else json.loads(submissao_existente.resultado_json)
-                
-                # Adiciona peso formatado para exibição se necessário
-                for r in resultado_avaliacao.get('detalhes', []):
-                    r['peso_exibicao'] = f"{r.get('peso', 0.0) * 10:.1f}"
-                    
-                context = {
-                    'exercise_id': exercise_id,
-                    'exercise_name': obter_nome_exibicao(exercise_id),
-                    'lti_token': lti_token,
-                    'student_code': submissao_existente.student_code,
-                    'resultado': resultado_avaliacao,
-                    'nota_10': submissao_existente.maior_nota,
-                    'passou_count': len(resultado_avaliacao.get('detalhes', [])),
-                    'total_count': len(resultado_avaliacao.get('detalhes', [])),
-                }
-                return render(request, 'grader/index.html', context)
-        except Submissao.DoesNotExist:
-            pass
-
-        # Executa a avaliação (Pytest Runner por padrão, ou fallback Docker)
-        resultado_avaliacao = executar_avaliacao(student_code, exercise_id, config_exercicio)
-        
-        # Prepara estatísticas de exibição e nota
-        nota_10 = round(resultado_avaliacao['nota'] * 10, 1)
-        passou_count = sum(1 for r in resultado_avaliacao['detalhes'] if r.get('passou'))
-        total_count = len(resultado_avaliacao['detalhes'])
-        
-        # Salva ou atualiza a submissão no banco de dados local com maior_nota e tentativas
-        submissao_existente = Submissao.objects.filter(aluno=aluno, exercise_id=exercise_id).first()
-        if submissao_existente:
-            maior_nota = max(nota_10, submissao_existente.maior_nota)
-            submissao_existente.nota = nota_10
-            submissao_existente.maior_nota = maior_nota
-            submissao_existente.tentativas = submissao_existente.tentativas + 1
-            submissao_existente.student_code = student_code
-            submissao_existente.resultado_json = resultado_avaliacao
-            submissao_existente.save()
-            submissao = submissao_existente
-        else:
-            submissao = Submissao.objects.create(
-                aluno=aluno,
-                exercise_id=exercise_id,
-                nota=nota_10,
-                maior_nota=nota_10,
-                tentativas=1,
-                student_code=student_code,
-                resultado_json=resultado_avaliacao
-            )
-        
-        # Envia a nota de volta para a plataforma EdX
-        lis_outcome_service_url = lti_params.get('lis_outcome_service_url')
-        lis_result_sourcedid = lti_params.get('lis_result_sourcedid')
-        oauth_consumer_key = lti_params.get('oauth_consumer_key') or LTI_KEY
-        
-        # Resolve secret dynamically
-        passports = obter_lti_passports()
-        client_secret = None
-        if oauth_consumer_key in passports:
-            client_secret = passports[oauth_consumer_key]
-        elif oauth_consumer_key == LTI_KEY:
-            client_secret = LTI_SECRET
-        else:
-            client_secret = LTI_SECRET
-            
-        nota_enviar = submissao.maior_nota / 10.0
-        if os.environ.get('LTI_FORCE_EVALUATION_SCORE'):
-            nota_enviar = float(os.environ.get('LTI_FORCE_EVALUATION_SCORE'))
-
-        # Comparador Launch vs Passback
-        passback_params = {
-            'oauth_consumer_key': oauth_consumer_key,
-            'lis_result_sourcedid': lis_result_sourcedid,
-            'lis_outcome_service_url': lis_outcome_service_url,
-            'user_id': user_id,
-            'context_id': lti_params.get('context_id'),
-            'custom_exercise_id': exercise_id,
-        }
-        comparar_launch_passback(lti_params, passback_params)
-
-        enviar_nota_ao_edx(
-            lis_outcome_service_url=lis_outcome_service_url,
-            lis_result_sourcedid=lis_result_sourcedid,
-            nota_decimal=nota_enviar,
-            client_key=oauth_consumer_key,
-            client_secret=client_secret
-        )
-        
-        # Adiciona peso na escala 0-10 para facilitar a renderização no template
-        for r in resultado_avaliacao['detalhes']:
-            r['peso_exibicao'] = f"{r.get('peso', 0.0) * 10:.1f}"
-            
-        context = {
-            'exercise_id': exercise_id,
-            'exercise_name': obter_nome_exibicao(exercise_id),
-            'lti_token': lti_token,
-            'student_code': student_code,
-            'resultado': resultado_avaliacao,
-            'nota_10': nota_10,
-            'passou_count': passou_count,
-            'total_count': total_count,
-        }
-        return render(request, 'grader/index.html', context)
-
-    # 2. Caso contrário, é um LTI Launch inicial vindo do EdX.
-    # Valida as chaves e assinatura LTI / OAuth 1.0.
-    uri = request.build_absolute_uri()
-    
-    received_signature = request.POST.get('oauth_signature')
-    client_key = request.POST.get('oauth_consumer_key')
-    
-    # Resolve secret dynamically
-    passports = obter_lti_passports()
-    client_secret = None
-    if client_key in passports:
-        client_secret = passports[client_key]
-    elif client_key == LTI_KEY:
-        client_secret = LTI_SECRET
-        
-    if not client_secret:
-        if os.environ.get('LTI_BYPASS_SIGNATURE_VERIFICATION') == '1':
-            client_secret = LTI_SECRET
-        else:
-            return HttpResponse("Chave LTI não reconhecida.", status=403)
-        
-    if not received_signature and os.environ.get('LTI_BYPASS_SIGNATURE_VERIFICATION') != '1':
-        return HttpResponse("Assinatura ausente.", status=403)
-
-    # Coleta os parâmetros do Request
-    params = [(k, v) for k, v in request.POST.items() if k != 'oauth_signature']
-    
-    # Codifica e Ordena os parâmetros
-    encoded_params = [(escape(k), escape(v)) for k, v in params]
-    encoded_params.sort()  # Ordena alfabeticamente pela chave
-    param_string = "&".join([f"{k}={v}" for k, v in encoded_params])
-    
-    # Monta a Base String
-    base_string = "&".join([
-        request.method.upper(),
-        escape(uri.split('?')[0]), # RFC 5849: path is case-sensitive, do not lowercase
-        escape(param_string)
-    ])
-    
-    # A Chave de Assinatura (Consumer Secret + "&" + Token Secret que no LTI é vazio)
-    signing_key = escape(client_secret) + "&"
-    
-    # Hash HMAC-SHA1
-    hashed = hmac.new(
-        signing_key.encode('utf-8'),
-        base_string.encode('utf-8'),
-        hashlib.sha1
-    )
-    
-    # Transforma os bytes do hash em uma string legível em Base64
-    expected_signature = base64.b64encode(hashed.digest()).decode('utf-8')
-
-    print("\n=== MOTOR CRIPTOGRÁFICO RAIZ ===")
-    print(f"Assinatura do Request (EdX) : {received_signature}")
-    print(f"Assinatura Calculada AQUI  : {expected_signature}")
-    print("================================\n")
-
-    signature_ok = False
-    if os.environ.get('LTI_BYPASS_SIGNATURE_VERIFICATION') == '1':
-        signature_ok = True
-    elif received_signature:
-        signature_ok = hmac.compare_digest(expected_signature.encode(), received_signature.encode())
-        
-    # Log the launch debug details
-    params_dict = dict(request.POST.items())
-    log_lti_launch(request, params_dict, signature_ok)
-
-    if not signature_ok:
-        return HttpResponse("Acesso Negado: As assinaturas HMAC não batem.", status=403)
-    
-    sourcedid = request.POST.get('lis_result_sourcedid')
-    user_id = request.POST.get('user_id', 'aluno_test')
-    
-    # Registra ou recupera o aluno no banco de dados local
-    aluno, _ = Aluno.objects.get_or_create(user_id=user_id)
-    
-    # Determina qual exercício avaliar
-    exercise_id_resolved = exercise_id
-    if not exercise_id_resolved:
-        exercise_id_resolved = request.GET.get('exercise') or request.POST.get('custom_exercise_id') or request.POST.get('resource_link_id')
-    if not exercise_id_resolved:
-        # fallback para testes locais rápidos se não enviado via LTI
-        exercise_id_resolved = "week_4_fatorial"
-        
-    exercise_id = exercise_id_resolved
-    
-    # Verifica se já foi passado o código no request (chamada automatizada ou via script)
-    student_code = request.POST.get('custom_student_code')
-    if student_code is not None:
-        caminho_tests_json = os.path.join(settings.BASE_DIR, 'tests.json')
-        if not os.path.exists(caminho_tests_json):
-            return HttpResponse("Arquivo tests.json de configuração não encontrado.", status=500)
-            
-        with open(caminho_tests_json, 'r', encoding='utf-8') as f:
-            todos_os_testes = json.load(f)
-            
-        if exercise_id not in todos_os_testes:
-            return HttpResponse(f"Exercício '{exercise_id}' não configurado no autograder.", status=400)
-            
-        config_exercicio = todos_os_testes[exercise_id]
-        
-        # Chama o motor de avaliação (Pytest ou Docker)
-        resultado_avaliacao = executar_avaliacao(student_code, exercise_id, config_exercicio)
-        
-        # Constrói o relatório detalhado no formato original (devolve texto puro)
-        feedback_lines = ["O resultado dos testes com seu programa foi:\n"]
-        
-        for r in resultado_avaliacao['detalhes']:
-            peso = r.get("peso", 0.0)
-            descricao = r.get("descricao", "teste")
-            passou = r.get("passou", False)
-            
-            status_str = "Passou" if passou else "Falhou"
-            feedback_lines.append(f"***** [{peso * 10:.1f} pontos]: {descricao} - {status_str} *****")
-            
-            if not passou:
-                if 'erro' in r:
-                    feedback_lines.append(f"Erro de execução:\n{r['erro']}\n")
-                else:
-                    saida_aluno = r.get("saida_aluno")
-                    esperado = r.get("esperado")
-                    feedback_lines.append(
-                        f"AssertionError: Esperado:\n{esperado}\n"
-                        f"Recebido:\n{saida_aluno}\n"
-                    )
-        
-        nota_final_10 = round(resultado_avaliacao['nota'] * 10, 1)
-        feedback_lines.append(f"\nNota Final: {nota_final_10}/10.0")
-        
-        feedback_text = "\n".join(feedback_lines)
-        
-        # Salva/atualiza submissão no banco de dados mesmo no modo direto
-        submissao, _ = Submissao.objects.update_or_create(
-            aluno=aluno,
-            exercise_id=exercise_id,
-            defaults={
-                'nota': nota_final_10,
-                'student_code': student_code,
-                'resultado_json': json.dumps(resultado_avaliacao)
+            result = executar_avaliacao(code, exercise_id, catalog[exercise_id])
+        except Exception:
+            logger.exception('Falha no motor de avaliação para %s.', exercise_id)
+            result = {
+                'sucesso': False, 'nota': 0, 'detalhes': [], 'baterias': [],
+                'erro': 'O corretor está indisponível. Avise o professor e tente novamente.',
             }
+        if not result.get('sucesso', True):
+            # Uma falha operacional não é uma tentativa errada do aluno.
+            if is_form:
+                return _render_submission(
+                    request, params, token, code, result, submission, status=503,
+                )
+            return HttpResponse(result.get('erro', 'Falha no corretor.'), status=503)
+        submission = save_submission(aluno, exercise_id, code, result)
+
+    passback_status = _passback(params, submission)
+    if is_form:
+        return _render_submission(
+            request, params, token, code, result, submission, passback_status,
         )
-        
-        # Envia a nota de volta para a plataforma EdX caso os parâmetros tenham sido enviados
-        lis_outcome_service_url = request.POST.get('lis_outcome_service_url')
-        lis_result_sourcedid = request.POST.get('lis_result_sourcedid')
-        if lis_outcome_service_url and lis_result_sourcedid:
-            # Resolve secret dynamically
-            passports = obter_lti_passports()
-            client_secret = None
-            if client_key in passports:
-                client_secret = passports[client_key]
-            elif client_key == LTI_KEY:
-                client_secret = LTI_SECRET
-            else:
-                client_secret = LTI_SECRET
-                
-            nota_enviar = resultado_avaliacao.get('nota', 0.0)
-            if os.environ.get('LTI_FORCE_EVALUATION_SCORE'):
-                nota_enviar = float(os.environ.get('LTI_FORCE_EVALUATION_SCORE'))
-
-            # Direct compare logs
-            launch_params_direct = {
-                'oauth_consumer_key': client_key or LTI_KEY,
-                'lis_result_sourcedid': lis_result_sourcedid,
-                'lis_outcome_service_url': lis_outcome_service_url,
-                'user_id': user_id,
-                'context_id': request.POST.get('context_id'),
-                'custom_exercise_id': exercise_id,
-            }
-            comparar_launch_passback(launch_params_direct, launch_params_direct)
-
-            enviar_nota_ao_edx(
-                lis_outcome_service_url=lis_outcome_service_url,
-                lis_result_sourcedid=lis_result_sourcedid,
-                nota_decimal=nota_enviar,
-                client_key=client_key or LTI_KEY,
-                client_secret=client_secret
-            )
-        
-        # Imprime no log para depuração local do servidor
-        print("\n=== FEEDBACK GERADO ===")
-        print(feedback_text)
-        print("=======================\n")
-        
-        return HttpResponse(feedback_text, content_type="text/plain; charset=utf-8", status=200)
-
-    # 3. Caso contrário, renderiza a página HTML. 
-    # Verifica se já existe uma submissão para este aluno e exercício
-    try:
-        submissao_salva = Submissao.objects.get(aluno=aluno, exercise_id=exercise_id)
-        resultado_json = submissao_salva.resultado_json if isinstance(submissao_salva.resultado_json, dict) else json.loads(submissao_salva.resultado_json)
-        nota_10 = submissao_salva.maior_nota
-        student_code = submissao_salva.student_code
-        passou_count = sum(1 for r in resultado_json.get('detalhes', []) if r.get('passou'))
-        total_count = len(resultado_json.get('detalhes', []))
-        
-        # Adiciona peso formatado para exibição se necessário
-        for r in resultado_json.get('detalhes', []):
-            r['peso_exibicao'] = f"{r.get('peso', 0.0) * 10:.1f}"
-    except Submissao.DoesNotExist:
-        resultado_json = None
-        nota_10 = 0.0
-        student_code = ''
-        passou_count = 0
-        total_count = 0
-
-    # Gera lti_token preservando a sessão de LTI
-    lti_params = {
-        'lis_result_sourcedid': sourcedid,
-        'lis_outcome_service_url': request.POST.get('lis_outcome_service_url'),
-        'custom_exercise_id': exercise_id,
-        'oauth_consumer_key': client_key,
-        'user_id': user_id,
-        'context_id': request.POST.get('context_id'),
-        'resource_link_id': request.POST.get('resource_link_id'),
-    }
-    lti_token = signing.dumps(lti_params)
-    
-    context = {
-        'exercise_id': exercise_id,
-        'exercise_name': obter_nome_exibicao(exercise_id),
-        'lti_token': lti_token,
-        'student_code': student_code,
-        'resultado': resultado_json,
-        'nota_10': nota_10,
-        'passou_count': passou_count,
-        'total_count': total_count,
-    }
-    return render(request, 'grader/index.html', context)
-
+    lines = ['O resultado dos testes com seu programa foi:']
+    for battery in result.get('baterias', []):
+        state = 'Passou' if battery['passou'] else 'Falhou'
+        lines.append(f"Bateria {battery['descricao']} [{battery['peso'] * 10:.1f} pontos]: {state}")
+    for case in result.get('detalhes', []):
+        state = 'Passou' if case.get('passou') else 'Falhou'
+        lines.append(f"{case.get('descricao', 'Teste')}: {state}")
+        if case.get('erro'):
+            lines.append(case['erro'])
+    if result.get('erro'):
+        lines.append(result['erro'])
+    lines.append(f"Nota Final: {round(result['nota'] * 10, 1)}/10.0")
+    lines.append(f'Maior nota: {submission.maior_nota}/10.0')
+    if passback_status is False:
+        lines.append('A nota foi salva, mas o EdX não confirmou o recebimento. Envie novamente para retransmitir.')
+    return HttpResponse('\n'.join(lines), content_type='text/plain; charset=utf-8')
 
 @csrf_exempt
 def test_launcher_view(request):
+    if not settings.DEBUG:
+        return HttpResponse('Não encontrado.', status=404)
     import time
     import uuid
     
-    # 1. Carrega os exercícios disponíveis do tests.json
-    caminho_tests_json = os.path.join(settings.BASE_DIR, 'tests.json')
-    todos_exercicios = []
-    if os.path.exists(caminho_tests_json):
-        try:
-            with open(caminho_tests_json, 'r', encoding='utf-8') as f:
-                todos_exercicios = list(json.load(f).keys())
-        except Exception:
-            pass
+    # O simulador usa o mesmo catálogo da aplicação.
+    todos_exercicios = list(exercises())
             
     if not todos_exercicios:
         todos_exercicios = ["week_4_fatorial"]
@@ -648,6 +456,7 @@ def test_launcher_view(request):
     # Calculate signature
     # 1. Escape and sort parameters
     encoded_params = [(escape(k), escape(v)) for k, v in params.items()]
+    encoded_params.append((escape('exercise'), escape(exercise_id)))
     encoded_params.sort()
     param_string = "&".join([f"{k}={v}" for k, v in encoded_params])
     
@@ -710,8 +519,9 @@ def test_launcher_view(request):
         
         <form id="ltiForm" action="{target_url}?exercise={exercise_id}" method="POST" target="ltiFrame">
 """
+    from django.utils.html import escape as html_escape
     for k, v in params.items():
-        html_content += f'            <input type="hidden" name="{k}" value="{v}">\n'
+        html_content += f'            <input type="hidden" name="{html_escape(k)}" value="{html_escape(v)}">\n'
         
     html_content += """        </form>
         <iframe name="ltiFrame" id="ltiFrame"></iframe>
