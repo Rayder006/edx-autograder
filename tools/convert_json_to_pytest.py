@@ -1,57 +1,73 @@
+"""Conversor portátil do catálogo legado para especificações Pytest."""
+import argparse
 import json
-import os
+from pathlib import Path
 
-tests_json_path = '/Users/joni/Documents/edx-autograder/tests.json'
-exercises_dir = '/Users/joni/Documents/edx-autograder/exercises'
+ROOT = Path(__file__).resolve().parent.parent
 
-os.makedirs(exercises_dir, exist_ok=True)
 
-with open(tests_json_path, 'r', encoding='utf-8') as f:
-    exercises_data = json.load(f)
+def render(exercise):
+    kind = exercise.get('tipo', 'script')
+    function = exercise.get('nome_funcao')
+    lines = ['# -*- coding: utf-8 -*-', 'import pytest']
+    if kind == 'funcao':
+        if not function or not function.isidentifier():
+            raise ValueError('Nome de função inválido.')
+        lines.append(f'from solution import {function}')
+    lines.append('')
+    for index, battery in enumerate(exercise.get('baterias', [])):
+        name = battery.get('nome', f'bateria_{index + 1}')
+        if not name.isidentifier():
+            raise ValueError(f'Nome de bateria inválido: {name}')
+        weight = battery.get('peso', 1.0)
+        description = battery.get('descricao', name)
+        tests = battery.get('testes', [])
+        lines.append(f'@pytest.mark.bateria(nome={name!r}, peso={weight}, descricao={description!r})')
+        if kind == 'script':
+            cases = [(test.get('input', ''), test.get('expected', '')) for test in tests]
+            lines.extend([
+                f'@pytest.mark.parametrize("entrada, esperado", {cases!r})',
+                f'def test_{name}(script_runner, entrada, esperado):',
+                '    saida = script_runner.run("solution.py", stdin=entrada)',
+                '    assert script_runner.validar_saida(saida, esperado)',
+            ])
+        elif kind == 'funcao':
+            cases = [(test.get('args', []), test.get('expected')) for test in tests]
+            lines.extend([
+                f'@pytest.mark.parametrize("args, esperado", {cases!r})',
+                f'def test_{name}(args, esperado):',
+                f'    assert {function}(*args) == esperado',
+            ])
+        else:
+            raise ValueError(f'Tipo inválido: {kind}')
+        lines.append('')
+    return '\n'.join(lines)
 
-for ex_key, ex_config in exercises_data.items():
-    tipo = ex_config.get("tipo", "script")
-    nome_funcao = ex_config.get("nome_funcao", None)
-    baterias = ex_config.get("baterias", [])
-    
-    file_name = f"test_{ex_key}.py"
-    file_path = os.path.join(exercises_dir, file_name)
-    
-    lines = []
-    lines.append("# -*- coding: utf-8 -*-")
-    lines.append("import pytest")
-    
-    if tipo == "funcao" and nome_funcao:
-        lines.append(f"from solution import {nome_funcao}")
-    
-    lines.append("")
-    
-    for idx_b, bat in enumerate(baterias):
-        nome_bat = bat.get("nome", f"bateria_{idx_b+1}")
-        peso_bat = bat.get("peso", 1.0)
-        desc_bat = bat.get("descricao", nome_bat)
-        testes = bat.get("testes", [])
-        
-        func_name = f"test_{nome_bat}"
-        
-        lines.append(f'@pytest.mark.bateria(nome={repr(nome_bat)}, peso={peso_bat}, descricao={repr(desc_bat)})')
-        
-        if tipo == "script":
-            param_tuples = [(t.get("input", ""), t.get("expected", "")) for t in testes]
-            lines.append(f'@pytest.mark.parametrize("entrada, esperado", {repr(param_tuples)})')
-            lines.append(f"def {func_name}(script_runner, entrada, esperado):")
-            lines.append('    saida = script_runner.run("solution.py", stdin=entrada)')
-            lines.append('    assert script_runner.validar_saida(saida, esperado)')
-        
-        elif tipo == "funcao":
-            param_tuples = [(t.get("args", []), t.get("expected", None)) for t in testes]
-            lines.append(f'@pytest.mark.parametrize("args, esperado", {repr(param_tuples)})')
-            lines.append(f"def {func_name}(args, esperado):")
-            lines.append(f"    assert {nome_funcao}(*args) == esperado")
-            
-        lines.append("")
 
-    with open(file_path, 'w', encoding='utf-8') as f:
-        f.write("\n".join(lines))
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--source', type=Path, default=ROOT / 'tests.json')
+    parser.add_argument('--output', type=Path, default=ROOT / 'exercises')
+    mode = parser.add_mutually_exclusive_group()
+    mode.add_argument('--write', action='store_true', help='Regenera os arquivos de teste.')
+    mode.add_argument('--check', action='store_true', help='Verifica sincronização sem alterar arquivos (padrão).')
+    args = parser.parse_args()
+    catalog = json.loads(args.source.read_text(encoding='utf-8'))
+    different = []
+    for identifier, config in catalog.items():
+        if not identifier.isidentifier():
+            raise ValueError(f'Identificador inválido: {identifier}')
+        target = args.output / f'test_{identifier}.py'
+        content = render(config)
+        if args.write:
+            args.output.mkdir(parents=True, exist_ok=True)
+            target.write_text(content, encoding='utf-8')
+        elif not target.is_file() or target.read_text(encoding='utf-8') != content:
+            different.append(identifier)
+    if different:
+        parser.exit(1, 'Especificações diferentes do JSON: ' + ', '.join(different) + '\n')
+    print(f'{len(catalog)} especificações verificadas' + (' e regeneradas.' if args.write else '.'))
 
-print(f"Generated {len(exercises_data)} Pytest test files in {exercises_dir}!")
+
+if __name__ == '__main__':
+    main()

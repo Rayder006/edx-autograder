@@ -1,8 +1,11 @@
-.PHONY: help init start venv install run test docker-start docker-status migrate clean setup-env db-start db-stop db-logs db-shell prod-init
+.PHONY: help init start venv install run test test-lti docker-start docker-status runner-build migrate collectstatic clean setup-env db-start db-stop db-logs db-shell web-start prod-init prod-stop prod-logs prod-status doctor
+.NOTPARALLEL: init start prod-init
 
 # Binários do Ambiente Virtual
 PYTHON = venv/bin/python
 PIP = venv/bin/pip
+ENV_FILE ?= .env
+COMPOSE = AUTOGRADER_ENV_FILE="$(abspath $(ENV_FILE))" docker compose --env-file "$(ENV_FILE)"
 
 help:
 	@echo "======================================================================"
@@ -13,36 +16,38 @@ help:
 	@echo "  make start          - Roda migrações e inicia o servidor Django"
 	@echo ""
 	@echo "Produção (PostgreSQL via Docker Compose):"
-	@echo "  make setup-env      - Cria o .env a partir de .env.example"
+	@echo "  make setup-env      - Verifica se o .env foi criado manualmente"
 	@echo "  make db-start       - Sobe o container PostgreSQL"
 	@echo "  make db-stop        - Para o container PostgreSQL"
 	@echo "  make db-logs        - Exibe logs do container PostgreSQL"
 	@echo "  make db-shell       - Abre terminal psql dentro do container"
-	@echo "  make prod-init      - Inicialização completa (setup-env + db-start + migrate)"
+	@echo "  make web-start      - Constrói e inicia o servidor web via Compose"
+	@echo "  make prod-init      - Inicialização completa (env + DB + servidor web)"
 	@echo ""
 	@echo "Outros auxiliares:"
 	@echo "  make venv           - Cria o ambiente virtual python (venv)"
 	@echo "  make install        - Instala/atualiza todas as dependências no venv"
 	@echo "  make run            - Inicia o servidor de desenvolvimento Django"
 	@echo "  make migrate        - Executa as migrações do banco de dados"
-	@echo "  make test           - Executa o script de teste de integração LTI"
+	@echo "  make test           - Executa a suíte automatizada (Pytest + Django)"
+	@echo "  make test-lti       - Envia uma submissão ao servidor local em execução"
+	@echo "  make runner-build   - Prepara a imagem de correção com Pytest"
+	@echo "  make doctor         - Verifica banco, Docker e correção real em produção"
+	@echo "  make prod-logs      - Acompanha logs do servidor de produção"
+	@echo "  make prod-status    - Mostra o estado dos serviços de produção"
 	@echo "  make docker-start   - Inicializa o daemon do Docker (macOS)"
 	@echo "  make docker-status  - Verifica a conectividade com o Docker"
 	@echo "  make clean          - Limpa caches e arquivos temporários do Python"
 	@echo "======================================================================"
 
-init: install migrate
+init: install runner-build migrate collectstatic
 	@echo "======================================================================"
 	@echo " 🎉 Projeto inicializado com sucesso!"
 	@echo " Para iniciar o servidor local, execute:"
 	@echo "   make start"
 	@echo "======================================================================"
 
-start:
-	@echo "Verificando status do Docker..."
-	@docker ps >/dev/null 2>&1 || (echo "⚠️ Docker não está rodando. Inicializando Docker Desktop..." && open -a Docker && echo "Aguardando 10 segundos para o daemon carregar..." && sleep 10)
-	@echo "Executando migrações do banco de dados..."
-	@$(PYTHON) manage.py migrate
+start: runner-build migrate
 	@echo "Iniciando servidor de desenvolvimento Django..."
 	@$(PYTHON) manage.py runserver 8000
 
@@ -69,18 +74,25 @@ migrate:
 	@echo "Executando migrações do banco de dados..."
 	@$(PYTHON) manage.py migrate
 
+collectstatic:
+	@$(PYTHON) manage.py collectstatic --noinput
+
 test:
+	@$(PYTHON) -m pytest
+
+test-lti:
 	@echo "Iniciando teste de integração LTI..."
 	@$(PYTHON) test_lti.py
 
 docker-start:
-	@echo "Abrindo o Docker Desktop..."
-	@open -a Docker
-	@echo "Aguardando 5 segundos para inicialização..."
-	@sleep 5
+	@if [ "$$(uname -s)" = "Darwin" ]; then open -a Docker; \
+	else echo "Inicie o serviço Docker da sua distribuição Linux."; exit 1; fi
 
 docker-status:
-	@docker ps >/dev/null 2>&1 && echo "Docker está ativo e rodando! 👍" || echo "Docker não está ativo. Use 'make docker-start' primeiro."
+	@docker info >/dev/null 2>&1 || (echo "Docker indisponível. Inicie o Docker e confira a permissão do socket."; exit 1)
+
+runner-build: docker-status
+	@docker build -t edx-autograder-web:latest .
 
 clean:
 	@echo "Limpando caches do Python..."
@@ -93,45 +105,50 @@ clean:
 # ---------------------------------------------------------------------------
 
 setup-env:
-	@if [ ! -f ".env" ]; then \
-		cp .env.example .env; \
-		echo "✅ Arquivo .env criado a partir de .env.example."; \
-		echo ""; \
-		echo "⚠️  ATENÇÃO: Edite o arquivo .env antes de continuar!"; \
-		echo "   Variáveis obrigatórias:"; \
-		echo "     DJANGO_SECRET_KEY    → python -c 'import secrets; print(secrets.token_hex(50))'"; \
-		echo "     DJANGO_ALLOWED_HOSTS → domínio real (ex: autograder.ime.usp.br)"; \
-		echo "     POSTGRES_PASSWORD    → senha forte para o banco"; \
-		echo "     LTI_PASSPORTS        → chave:segredo igual ao configurado no EdX Studio"; \
-	else \
-		echo "Arquivo .env já existe. Nenhuma alteração feita."; \
+	@if [ ! -f "$(ENV_FILE)" ]; then \
+		echo "❌ Arquivo $(ENV_FILE) não encontrado."; \
+		echo "Crie-o manualmente a partir de .env.example e preencha os valores reais."; \
+	exit 1; \
 	fi
+	@echo "✅ Arquivo .env encontrado."
 
-db-start:
+db-start: setup-env
 	@echo "Subindo container PostgreSQL..."
-	@docker-compose up -d db
-	@echo "Aguardando PostgreSQL ficar pronto (healthcheck)..."
-	@for i in 1 2 3 4 5 6 7 8 9 10; do \
-		docker-compose exec db pg_isready -U autograder_user -d autograder >/dev/null 2>&1 \
-			&& echo "✅ PostgreSQL pronto!" && break \
-			|| (echo "  Tentativa $$i/10 — aguardando..." && sleep 3); \
-	done
+	@$(COMPOSE) up -d --wait --wait-timeout 120 db
+	@echo "✅ PostgreSQL pronto!"
 
 db-stop:
 	@echo "Parando container PostgreSQL..."
-	@docker-compose stop db
+	@$(COMPOSE) stop db
 	@echo "✅ PostgreSQL parado."
 
 db-logs:
-	@docker-compose logs -f db
+	@$(COMPOSE) logs -f db
 
 db-shell:
 	@echo "Abrindo terminal psql no container PostgreSQL..."
-	@docker-compose exec db psql -U autograder_user -d autograder
+	@$(COMPOSE) exec db sh -c 'psql -U "$$POSTGRES_USER" -d "$$POSTGRES_DB"'
 
-prod-init: setup-env db-start migrate
+web-start: setup-env
+	@echo "Construindo e iniciando o servidor web..."
+	@$(COMPOSE) up -d --build --wait --wait-timeout 180 web
+	@echo "✅ Servidor web pronto."
+
+prod-init: web-start
+	@$(COMPOSE) exec -T web python manage.py check_autograder
 	@echo "======================================================================"
 	@echo " 🎉 Ambiente de produção inicializado com sucesso!"
-	@echo " Para iniciar o servidor Django, execute:"
-	@echo "   make run"
+	@echo " O PostgreSQL e o servidor web estão em execução."
 	@echo "======================================================================"
+
+doctor: setup-env
+	@$(COMPOSE) exec -T web python manage.py check_autograder
+
+prod-stop:
+	@$(COMPOSE) stop web db
+
+prod-logs:
+	@$(COMPOSE) logs -f web
+
+prod-status:
+	@$(COMPOSE) ps

@@ -230,7 +230,7 @@
         "testes": [
           {
             "input": "123456323456\n",
-            "expected": "1428892 dias, 16 horas, 4 minutos e 16 segundos.",
+            "expected": "1428892 dias, 15 horas, 10 minutos e 56 segundos.",
             "peso": 0.33,
             "descricao": "Checando conversão de segundos (123456323456)"
           },
@@ -338,6 +338,38 @@
             "expected": "4",
             "peso": 0.2,
             "descricao": "Checando buzz - falso (4)"
+          }
+        ]
+      },
+      {
+        "nome": "zero_negativos",
+        "descricao": "Checando zero e negativos",
+        "peso": 0.2,
+        "testes": [
+          {
+            "input": "0\n",
+            "expected": "Buzz",
+            "descricao": "Checando zero e negativos (0)"
+          },
+          {
+            "input": "-5\n",
+            "expected": "Buzz",
+            "descricao": "Checando zero e negativos (-5)"
+          },
+          {
+            "input": "-3\n",
+            "expected": "-3",
+            "descricao": "Checando zero e negativos (-3)"
+          },
+          {
+            "input": "-75\n",
+            "expected": "Buzz",
+            "descricao": "Checando zero e negativos (-75)"
+          },
+          {
+            "input": "-49\n",
+            "expected": "-49",
+            "descricao": "Checando zero e negativos (-49)"
           }
         ]
       }
@@ -497,6 +529,68 @@
             "expected": "8",
             "peso": 0.2,
             "descricao": "Checando fizzbuzz - falso (8)"
+          }
+        ]
+      },
+      {
+        "nome": "zero_negativos",
+        "descricao": "Checando zero e negativos",
+        "peso": 0.2,
+        "testes": [
+          {
+            "input": "0\n",
+            "expected": "FizzBuzz",
+            "descricao": "Checando zero e negativos (0)"
+          },
+          {
+            "input": "-45\n",
+            "expected": "FizzBuzz",
+            "descricao": "Checando zero e negativos (-45)"
+          },
+          {
+            "input": "-105\n",
+            "expected": "FizzBuzz",
+            "descricao": "Checando zero e negativos (-105)"
+          },
+          {
+            "input": "-3\n",
+            "expected": "-3",
+            "descricao": "Checando zero e negativos (-3)"
+          },
+          {
+            "input": "-5\n",
+            "expected": "-5",
+            "descricao": "Checando zero e negativos (-5)"
+          },
+          {
+            "input": "-9\n",
+            "expected": "-9",
+            "descricao": "Checando zero e negativos (-9)"
+          },
+          {
+            "input": "-14\n",
+            "expected": "-14",
+            "descricao": "Checando zero e negativos (-14)"
+          },
+          {
+            "input": "-15\n",
+            "expected": "FizzBuzz",
+            "descricao": "Checando zero e negativos (-15)"
+          },
+          {
+            "input": "-27\n",
+            "expected": "-27",
+            "descricao": "Checando zero e negativos (-27)"
+          },
+          {
+            "input": "-35\n",
+            "expected": "-35",
+            "descricao": "Checando zero e negativos (-35)"
+          },
+          {
+            "input": "-110\n",
+            "expected": "-110",
+            "descricao": "Checando zero e negativos (-110)"
           }
         ]
       }
@@ -901,80 +995,132 @@
           {
             "input": "2\n",
             "expected": "primo",
-            "peso": 0.05,
             "descricao": "Testando primos pequenos (2)"
           },
           {
             "input": "3\n",
             "expected": "primo",
-            "peso": 0.05,
             "descricao": "Testando primos pequenos (3)"
           },
           {
             "input": "5\n",
             "expected": "primo",
-            "peso": 0.05,
             "descricao": "Testando primos pequenos (5)"
           },
           {
             "input": "7\n",
             "expected": "primo",
-            "peso": 0.05,
             "descricao": "Testando primos pequenos (7)"
           },
           {
             "input": "11\n",
             "expected": "primo",
-            "peso": 0.05,
             "descricao": "Testando primos pequenos (11)"
           },
           {
             "input": "13\n",
             "expected": "primo",
-            "peso": 0.05,
             "descricao": "Testando primos pequenos (13)"
           },
           {
-            "input": "4\n",
-            "expected": "não primo",
-            "peso": 0.05,
-            "descricao": "Testando nao-primos pequenos (4)"
+            "input": "17\n",
+            "expected": "primo",
+            "descricao": "Testando primos pequenos (17)"
           },
           {
-            "input": "6\n",
-            "expected": "não primo",
-            "peso": 0.05,
-            "descricao": "Testando nao-primos pequenos (6)"
+            "input": "19\n",
+            "expected": "primo",
+            "descricao": "Testando primos pequenos (19)"
           },
           {
-            "input": "8\n",
-            "expected": "não primo",
-            "peso": 0.05,
-            "descricao": "Testando nao-primos pequenos (8)"
+            "input": "23\n",
+            "expected": "primo",
+            "descricao": "Testando primos pequenos (23)"
           },
           {
-            "input": "9\n",
-            "expected": "não primo",
-            "peso": 0.05,
-            "descricao": "Testando nao-primos pequenos (9)"
+            "input": "29\n",
+            "expected": "primo",
+            "descricao": "Testando primos pequenos (29)"
           },
           {
-            "input": "10\n",
-            "expected": "não primo",
-            "peso": 0.05,
-            "descricao": "Testando nao-primos pequenos (10)"
+            "input": "31\n",
+            "expected": "primo",
+            "descricao": "Testando primos pequenos (31)"
           },
           {
-            "input": "14\n",
-            "expected": "não primo",
-            "peso": 0.05,
-            "descricao": "Testando nao-primos pequenos (14)"
+            "input": "37\n",
+            "expected": "primo",
+            "descricao": "Testando primos pequenos (37)"
           },
           {
-            "input": "15\n",
-            "expected": "não primo",
-            "peso": 0.05,
-            "descricao": "Testando nao-primos pequenos (15)"
+            "input": "41\n",
+            "expected": "primo",
+            "descricao": "Testando primos pequenos (41)"
+          },
+          {
+            "input": "43\n",
+            "expected": "primo",
+            "descricao": "Testando primos pequenos (43)"
+          },
+          {
+            "input": "47\n",
+            "expected": "primo",
+            "descricao": "Testando primos pequenos (47)"
+          },
+          {
+            "input": "53\n",
+            "expected": "primo",
+            "descricao": "Testando primos pequenos (53)"
+          },
+          {
+            "input": "59\n",
+            "expected": "primo",
+            "descricao": "Testando primos pequenos (59)"
+          },
+          {
+            "input": "61\n",
+            "expected": "primo",
+            "descricao": "Testando primos pequenos (61)"
+          },
+          {
+            "input": "67\n",
+            "expected": "primo",
+            "descricao": "Testando primos pequenos (67)"
+          },
+          {
+            "input": "71\n",
+            "expected": "primo",
+            "descricao": "Testando primos pequenos (71)"
+          },
+          {
+            "input": "73\n",
+            "expected": "primo",
+            "descricao": "Testando primos pequenos (73)"
+          },
+          {
+            "input": "79\n",
+            "expected": "primo",
+            "descricao": "Testando primos pequenos (79)"
+          },
+          {
+            "input": "83\n",
+            "expected": "primo",
+            "descricao": "Testando primos pequenos (83)"
+          },
+          {
+            "input": "89\n",
+            "expected": "primo",
+            "descricao": "Testando primos pequenos (89)"
+          },
+          {
+            "input": "97\n",
+            "expected": "primo",
+            "descricao": "Testando primos pequenos (97)"
+          },
+          {
+            "input": "101\n",
+            "expected": "primo",
+            "descricao": "Testando primos pequenos (101)"
           }
         ]
       },
@@ -986,44 +1132,92 @@
           {
             "input": "4\n",
             "expected": "não primo",
-            "peso": 0.05,
-            "descricao": "Testando nao-primos pequenos (4)"
+            "descricao": "Testando não-primos pequenos (4)"
           },
           {
             "input": "6\n",
             "expected": "não primo",
-            "peso": 0.05,
-            "descricao": "Testando nao-primos pequenos (6)"
+            "descricao": "Testando não-primos pequenos (6)"
           },
           {
             "input": "8\n",
             "expected": "não primo",
-            "peso": 0.05,
-            "descricao": "Testando nao-primos pequenos (8)"
+            "descricao": "Testando não-primos pequenos (8)"
           },
           {
             "input": "9\n",
             "expected": "não primo",
-            "peso": 0.05,
-            "descricao": "Testando nao-primos pequenos (9)"
+            "descricao": "Testando não-primos pequenos (9)"
           },
           {
             "input": "10\n",
             "expected": "não primo",
-            "peso": 0.05,
-            "descricao": "Testando nao-primos pequenos (10)"
+            "descricao": "Testando não-primos pequenos (10)"
           },
           {
             "input": "14\n",
             "expected": "não primo",
-            "peso": 0.05,
-            "descricao": "Testando nao-primos pequenos (14)"
+            "descricao": "Testando não-primos pequenos (14)"
           },
           {
             "input": "15\n",
             "expected": "não primo",
-            "peso": 0.05,
-            "descricao": "Testando nao-primos pequenos (15)"
+            "descricao": "Testando não-primos pequenos (15)"
+          },
+          {
+            "input": "18\n",
+            "expected": "não primo",
+            "descricao": "Testando não-primos pequenos (18)"
+          },
+          {
+            "input": "20\n",
+            "expected": "não primo",
+            "descricao": "Testando não-primos pequenos (20)"
+          },
+          {
+            "input": "21\n",
+            "expected": "não primo",
+            "descricao": "Testando não-primos pequenos (21)"
+          },
+          {
+            "input": "25\n",
+            "expected": "não primo",
+            "descricao": "Testando não-primos pequenos (25)"
+          },
+          {
+            "input": "27\n",
+            "expected": "não primo",
+            "descricao": "Testando não-primos pequenos (27)"
+          },
+          {
+            "input": "33\n",
+            "expected": "não primo",
+            "descricao": "Testando não-primos pequenos (33)"
+          },
+          {
+            "input": "49\n",
+            "expected": "não primo",
+            "descricao": "Testando não-primos pequenos (49)"
+          },
+          {
+            "input": "51\n",
+            "expected": "não primo",
+            "descricao": "Testando não-primos pequenos (51)"
+          },
+          {
+            "input": "65\n",
+            "expected": "não primo",
+            "descricao": "Testando não-primos pequenos (65)"
+          },
+          {
+            "input": "77\n",
+            "expected": "não primo",
+            "descricao": "Testando não-primos pequenos (77)"
+          },
+          {
+            "input": "100\n",
+            "expected": "não primo",
+            "descricao": "Testando não-primos pequenos (100)"
           }
         ]
       },
@@ -1035,44 +1229,47 @@
           {
             "input": "359\n",
             "expected": "primo",
-            "peso": 0.05,
             "descricao": "Testando primos diversos (359)"
           },
           {
             "input": "7451\n",
             "expected": "primo",
-            "peso": 0.05,
             "descricao": "Testando primos diversos (7451)"
           },
           {
             "input": "87874301\n",
             "expected": "primo",
-            "peso": 0.05,
             "descricao": "Testando primos diversos (87874301)"
           },
           {
-            "input": "85043527\n",
-            "expected": "não primo",
-            "peso": 0.05,
-            "descricao": "Testando nao-primos diversos (85043527)"
+            "input": "734479\n",
+            "expected": "primo",
+            "descricao": "Testando primos diversos (734479)"
           },
           {
-            "input": "377\n",
-            "expected": "não primo",
-            "peso": 0.05,
-            "descricao": "Testando nao-primos diversos (377)"
+            "input": "43711\n",
+            "expected": "primo",
+            "descricao": "Testando primos diversos (43711)"
           },
           {
-            "input": "7447\n",
-            "expected": "não primo",
-            "peso": 0.05,
-            "descricao": "Testando nao-primos diversos (7447)"
+            "input": "9887\n",
+            "expected": "primo",
+            "descricao": "Testando primos diversos (9887)"
           },
           {
-            "input": "361\n",
-            "expected": "não primo",
-            "peso": 0.05,
-            "descricao": "Testando nao-primos diversos (361)"
+            "input": "64327\n",
+            "expected": "primo",
+            "descricao": "Testando primos diversos (64327)"
+          },
+          {
+            "input": "854123\n",
+            "expected": "primo",
+            "descricao": "Testando primos diversos (854123)"
+          },
+          {
+            "input": "3546161\n",
+            "expected": "primo",
+            "descricao": "Testando primos diversos (3546161)"
           }
         ]
       },
@@ -1084,26 +1281,52 @@
           {
             "input": "85043527\n",
             "expected": "não primo",
-            "peso": 0.05,
-            "descricao": "Testando nao-primos diversos (85043527)"
+            "descricao": "Testando não-primos diversos (85043527)"
           },
           {
             "input": "377\n",
             "expected": "não primo",
-            "peso": 0.05,
-            "descricao": "Testando nao-primos diversos (377)"
+            "descricao": "Testando não-primos diversos (377)"
           },
           {
             "input": "7447\n",
             "expected": "não primo",
-            "peso": 0.05,
-            "descricao": "Testando nao-primos diversos (7447)"
+            "descricao": "Testando não-primos diversos (7447)"
+          },
+          {
+            "input": "714391\n",
+            "expected": "não primo",
+            "descricao": "Testando não-primos diversos (714391)"
+          },
+          {
+            "input": "41613\n",
+            "expected": "não primo",
+            "descricao": "Testando não-primos diversos (41613)"
+          },
+          {
+            "input": "9773\n",
+            "expected": "não primo",
+            "descricao": "Testando não-primos diversos (9773)"
+          },
+          {
+            "input": "63363\n",
+            "expected": "não primo",
+            "descricao": "Testando não-primos diversos (63363)"
           },
           {
             "input": "361\n",
             "expected": "não primo",
-            "peso": 0.05,
-            "descricao": "Testando nao-primos diversos (361)"
+            "descricao": "Testando não-primos diversos (361)"
+          },
+          {
+            "input": "3488699\n",
+            "expected": "não primo",
+            "descricao": "Testando não-primos diversos (3488699)"
+          },
+          {
+            "input": "3330017\n",
+            "expected": "não primo",
+            "descricao": "Testando não-primos diversos (3330017)"
           }
         ]
       }
@@ -1149,7 +1372,7 @@
           },
           {
             "input": "733432134\n",
-            "expected": "28",
+            "expected": "30",
             "peso": 0.2,
             "descricao": "Checando soma dos dígitos (733432134)"
           }

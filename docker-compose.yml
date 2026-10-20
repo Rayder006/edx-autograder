@@ -1,44 +1,59 @@
-version: '3.8'
-
 services:
   db:
     image: postgres:16-alpine
-    container_name: autograder_db
     restart: always
+    env_file:
+      - "${AUTOGRADER_ENV_FILE:-.env}"
     environment:
-      POSTGRES_DB: autograder
-      POSTGRES_USER: autograder_user
-      POSTGRES_PASSWORD: autograder_secure_password
+      POSTGRES_DB: "${POSTGRES_DB:?Defina POSTGRES_DB no .env}"
+      POSTGRES_USER: "${POSTGRES_USER:?Defina POSTGRES_USER no .env}"
+      POSTGRES_PASSWORD: "${POSTGRES_PASSWORD:?Defina POSTGRES_PASSWORD no .env}"
     ports:
-      - "5432:5432"
+      - "127.0.0.1:${POSTGRES_PORT_HOST:-5432}:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U autograder_user -d autograder"]
+      test: ["CMD-SHELL", "pg_isready -U \"$$POSTGRES_USER\" -d \"$$POSTGRES_DB\""]
       interval: 5s
       timeout: 5s
       retries: 5
 
   web:
     build: .
-    container_name: autograder_web
+    image: edx-autograder-web:latest
     restart: always
+    env_file:
+      - "${AUTOGRADER_ENV_FILE:-.env}"
     command: >
-      sh -c "python manage.py migrate &&
-             python manage.py runserver 0.0.0.0:8000"
+      sh -c "python manage.py migrate --noinput &&
+             python manage.py collectstatic --noinput &&
+             exec gunicorn config.wsgi:application --bind 0.0.0.0:8000
+             --workers 2 --threads 2 --timeout 90 --access-logfile - --error-logfile -"
     ports:
-      - "8000:8000"
+      - "${AUTOGRADER_WEB_PORT:-8000}:8000"
     environment:
-      POSTGRES_DB: autograder
-      POSTGRES_USER: autograder_user
-      POSTGRES_PASSWORD: autograder_secure_password
+      DJANGO_DEBUG: "${DJANGO_DEBUG:-False}"
+      DJANGO_SECRET_KEY: "${DJANGO_SECRET_KEY:?Defina DJANGO_SECRET_KEY no .env}"
+      DJANGO_ALLOWED_HOSTS: "${DJANGO_ALLOWED_HOSTS:?Defina DJANGO_ALLOWED_HOSTS no .env}"
       POSTGRES_HOST: db
       POSTGRES_PORT: 5432
-      AUTOGRADER_ENGINE: pytest
-      DJANGO_SECRET_KEY: "change-this-in-production-secret-key"
+      AUTOGRADER_ENGINE: "${AUTOGRADER_ENGINE:-pytest}"
+      AUTOGRADER_RUNNER_IMAGE: edx-autograder-web:latest
+      AUTOGRADER_TMP_DIR: /tmp/autograder
+      AUTOGRADER_TMP_DIR_HOST: "${AUTOGRADER_TMP_DIR_HOST:-/tmp/autograder}"
+      AUTOGRADER_ALLOW_LOCAL_FALLBACK: "0"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - "${AUTOGRADER_TMP_DIR_HOST:-/tmp/autograder}:/tmp/autograder"
     depends_on:
       db:
         condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health/', timeout=5)"]
+      interval: 5s
+      timeout: 6s
+      start_period: 30s
+      retries: 12
 
 volumes:
   postgres_data:
