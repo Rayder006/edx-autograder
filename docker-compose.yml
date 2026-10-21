@@ -21,6 +21,9 @@ services:
   web:
     build: .
     image: edx-autograder-web:latest
+    user: "${AUTOGRADER_WEB_UID:-1000}:${AUTOGRADER_WEB_GID:-1000}"
+    group_add:
+      - "${AUTOGRADER_DOCKER_GID:-0}"
     restart: always
     env_file:
       - "${AUTOGRADER_ENV_FILE:-.env}"
@@ -43,7 +46,7 @@ services:
       AUTOGRADER_TMP_DIR_HOST: "${AUTOGRADER_TMP_DIR_HOST:-/tmp/autograder}"
       AUTOGRADER_ALLOW_LOCAL_FALLBACK: "0"
     volumes:
-      - /var/run/docker.sock:/var/run/docker.sock
+      - "${AUTOGRADER_DOCKER_SOCKET:-/var/run/docker.sock}:/var/run/docker.sock"
       - "${AUTOGRADER_TMP_DIR_HOST:-/tmp/autograder}:/tmp/autograder"
     depends_on:
       db:

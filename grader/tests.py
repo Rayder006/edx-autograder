@@ -82,7 +82,7 @@ class LTIOutcomesTestCase(TestCase):
     def test_enviar_nota_ao_edx_escapes_xml_sourcedid(self, mock_send):
         mock_response = requests.Response()
         mock_response.status_code = 200
-        mock_response._content = b'<imsx_codeMajor>success</imsx_codeMajor>'
+        mock_response._content = b'<imsx_POXEnvelopeResponse><imsx_POXHeader><imsx_statusInfo><imsx_codeMajor>success</imsx_codeMajor></imsx_statusInfo></imsx_POXHeader></imsx_POXEnvelopeResponse>'
         mock_send.return_value = mock_response
 
         self.assertTrue(enviar_nota_ao_edx(
@@ -116,7 +116,7 @@ class LTILaunchSignatureTestCase(TestCase):
             'oauth_consumer_key': self.key,
             'oauth_nonce': 'query-param-test-nonce',
             'oauth_signature_method': 'HMAC-SHA1',
-            'oauth_timestamp': '1792180000',
+            'oauth_timestamp': str(int(time.time())),
             'oauth_version': '1.0',
             'lti_message_type': 'basic-lti-launch-request',
             'lti_version': 'LTI-1p0',

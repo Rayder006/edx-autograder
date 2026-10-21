@@ -4,8 +4,9 @@
 # Binários do Ambiente Virtual
 PYTHON = venv/bin/python
 PIP = venv/bin/pip
+HOST_PYTHON ?= python3
 ENV_FILE ?= .env
-COMPOSE = AUTOGRADER_ENV_FILE="$(abspath $(ENV_FILE))" docker compose --env-file "$(ENV_FILE)"
+COMPOSE = ENV_FILE="$(ENV_FILE)" sh tools/compose.sh
 
 help:
 	@echo "======================================================================"
@@ -52,13 +53,16 @@ start: runner-build migrate
 	@$(PYTHON) manage.py runserver 8000
 
 venv:
-	@if [ ! -d "venv" ]; then \
+	@set -e; \
+	if [ ! -d "venv" ]; then \
+		$(HOST_PYTHON) -c 'import sys; sys.exit("Python 3.13+ é necessário. Use HOST_PYTHON=python3.13 ou o modo Compose.") if sys.version_info < (3, 13) else None'; \
 		echo "Criando ambiente virtual (venv)..."; \
-		python3 -m venv venv; \
+		$(HOST_PYTHON) -m venv venv; \
 		echo "Ambiente virtual criado! Execute 'make install' para instalar as dependências."; \
 	else \
 		echo "Ambiente virtual venv já existe."; \
-	fi
+	fi; \
+	$(PYTHON) -c 'import sys; sys.exit("O venv existente precisa usar Python 3.13+.") if sys.version_info < (3, 13) else None'
 
 install: venv
 	@echo "Instalando dependências..."

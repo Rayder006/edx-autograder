@@ -318,7 +318,7 @@ class PassbackResponseTests(SimpleTestCase):
     def test_namespace_and_whitespace_are_accepted(self, send):
         response = requests.Response()
         response.status_code = 200
-        response._content = b'<r xmlns:ns="urn:test"><ns:imsx_codeMajor>\n  success \n</ns:imsx_codeMajor></r>'
+        response._content = b'<imsx_POXEnvelopeResponse xmlns:ns="urn:test"><ns:imsx_statusInfo><ns:imsx_codeMajor>\n  success \n</ns:imsx_codeMajor></ns:imsx_statusInfo></imsx_POXEnvelopeResponse>'
         send.return_value = response
         self.assertTrue(enviar_nota_ao_edx('https://edx.example/grades', 'user', 1, KEY, SECRET))
 
@@ -437,6 +437,26 @@ class SqliteImportTests(TestCase):
         self.assertFalse(Aluno.objects.exists())
         self.assertFalse(Submissao.objects.exists())
 
+    def test_updated_sqlite_preserves_lti_context_and_callback(self):
+        context = {'oauth_consumer_key': 'key', 'lis_result_sourcedid': 'opaque'}
+        with sqlite3.connect(self.source) as legacy:
+            for column in [
+                'lti_scope TEXT', 'lti_context TEXT', 'passback_success INTEGER',
+                'passback_score REAL', 'passback_attempted_at TEXT',
+            ]:
+                legacy.execute(f'ALTER TABLE grader_submissao ADD COLUMN {column}')
+            legacy.execute('''UPDATE grader_submissao SET lti_scope = ?, lti_context = ?,
+                passback_success = 1, passback_score = 0.85, passback_attempted_at = ?''', (
+                'scope-from-current-installation', json.dumps(context), '2026-10-20 10:00:00',
+            ))
+        call_command('import_legacy_sqlite', source=str(self.source))
+        submission = Submissao.objects.get()
+        self.assertEqual(submission.lti_scope, 'scope-from-current-installation')
+        self.assertEqual(submission.lti_context, context)
+        self.assertIs(submission.passback_success, True)
+        self.assertEqual(submission.passback_score, .85)
+        self.assertEqual(submission.passback_attempted_at.day, 20)
+
     def test_nonempty_destination_is_preserved(self):
         Aluno.objects.create(user_id='existing')
         with self.assertRaises(CommandError):
@@ -446,6 +466,21 @@ class SqliteImportTests(TestCase):
     def test_bad_source_rolls_back_import(self):
         with sqlite3.connect(self.source) as legacy:
             legacy.execute('UPDATE grader_submissao SET resultado_json = ?', ('not json',))
+        with self.assertRaises(CommandError):
+            call_command('import_legacy_sqlite', source=str(self.source))
+        self.assertFalse(Aluno.objects.exists())
+
+    def test_invalid_best_score_rolls_back_instead_of_silently_discarding_it(self):
+        with sqlite3.connect(self.source) as legacy:
+            legacy.execute('ALTER TABLE grader_submissao ADD COLUMN maior_nota REAL')
+            legacy.execute("UPDATE grader_submissao SET maior_nota = 'NaN'")
+        with self.assertRaises(CommandError):
+            call_command('import_legacy_sqlite', source=str(self.source))
+        self.assertFalse(Aluno.objects.exists())
+
+    def test_invalid_date_rolls_back_instead_of_replacing_it_with_today(self):
+        with sqlite3.connect(self.source) as legacy:
+            legacy.execute("UPDATE grader_submissao SET updated_at = 'not a date'")
         with self.assertRaises(CommandError):
             call_command('import_legacy_sqlite', source=str(self.source))
         self.assertFalse(Aluno.objects.exists())

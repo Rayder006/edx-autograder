@@ -7,6 +7,8 @@ import hmac
 import hashlib
 import base64
 import logging
+import time
+from datetime import datetime, timezone as datetime_timezone
 import xml.etree.ElementTree as ET
 import requests
 from requests_oauthlib import OAuth1
@@ -18,11 +20,15 @@ from django.views.decorators.clickjacking import xframe_options_exempt
 from django.core import signing
 from django.shortcuts import render
 from django.db import transaction
-from .models import Aluno, Submissao
+from django.utils import timezone
+from .models import Aluno, Submissao, LTILaunchNonce
 from .runner import avaliar_no_docker_com_json
 from .pytest_runner import avaliar_com_pytest
 from .catalog import exercises
-from .submissions import save_submission, saved_result, display_result
+from .submissions import (
+    save_submission, saved_result, display_result, get_submission, lti_scope, lti_context,
+    remember_lti_context,
+)
 from .lti_debug import (
     obter_lti_passports,
     log_lti_launch,
@@ -168,7 +174,14 @@ def enviar_nota_ao_edx(
     try:
         if not dry_run:
             with requests.Session() as session:
-                response = session.send(prepared, timeout=15, allow_redirects=False)
+                # PreparedRequest não incorpora sozinho REQUESTS_CA_BUNDLE nem
+                # as configurações de proxy da infraestrutura.
+                environment = session.merge_environment_settings(
+                    prepared.url, {}, None, None, None,
+                )
+                response = session.send(
+                    prepared, timeout=15, allow_redirects=False, **environment,
+                )
             
             # Executa log do passback com resposta
             log_lti_passback(
@@ -189,11 +202,10 @@ def enviar_nota_ao_edx(
                 root = ET.fromstring(response.content)
             except ET.ParseError:
                 return False
-            return any(
-                element.tag.rsplit('}', 1)[-1] == 'imsx_codeMajor'
-                and (element.text or '').strip() == 'success'
-                for element in root.iter()
-            )
+            if root.tag.rsplit('}', 1)[-1] != 'imsx_POXEnvelopeResponse':
+                return False
+            statuses = root.findall('.//{*}imsx_statusInfo/{*}imsx_codeMajor')
+            return len(statuses) == 1 and (statuses[0].text or '').strip() == 'success'
         else:
             # Em modo dry-run apenas registra o log e retorna sucesso
             log_lti_passback(
@@ -241,7 +253,19 @@ def _passback(params, submission):
         score = current.maior_nota / 10.0
         if settings.DEBUG and os.environ.get('LTI_FORCE_EVALUATION_SCORE'):
             score = float(os.environ['LTI_FORCE_EVALUATION_SCORE'])
-        success = enviar_nota_ao_edx(url, sourcedid, score, params.get('oauth_consumer_key'))
+        current.lti_context = lti_context(params)
+        current.passback_attempted_at = timezone.now()
+        try:
+            success = enviar_nota_ao_edx(url, sourcedid, score, params.get('oauth_consumer_key'))
+        except Exception:
+            logger.exception('Falha inesperada no retorno de nota LTI.')
+            success = False
+        current.passback_success = success
+        if success:
+            current.passback_score = score
+        current.save(update_fields=[
+            'lti_context', 'passback_attempted_at', 'passback_success', 'passback_score',
+        ])
     if not success:
         logger.warning('O EdX não confirmou o recebimento da nota.')
     return success
@@ -249,6 +273,10 @@ def _passback(params, submission):
 
 def _render_submission(request, params, token, code='', result=None, submission=None,
                        passback_status=None, status=200):
+    if passback_status is None and submission and submission.lti_context == lti_context(params):
+        passback_status = submission.passback_success
+        if submission.passback_score != submission.maior_nota / 10.0 and passback_status:
+            passback_status = None
     result = display_result(result) if result is not None else None
     details = result.get('detalhes', []) if result else []
     return render(request, 'grader/index.html', {
@@ -300,7 +328,27 @@ def _valid_launch(request):
     ).digest()).decode()
     valid = hmac.compare_digest(expected.encode(), received.encode())
     log_lti_launch(request, dict(request.POST.items()), valid)
-    return valid
+    if not valid:
+        return False
+    # Uma assinatura correta sem timestamp/nonce verificados pode ser repetida
+    # indefinidamente. O banco faz a deduplicação entre todos os workers.
+    nonce = request.POST.get('oauth_nonce', '')
+    try:
+        timestamp = int(request.POST.get('oauth_timestamp', ''))
+    except (TypeError, ValueError):
+        return False
+    tolerance = 90 * 60  # Janela recomendada pelo guia LTI 1.1.
+    now = time.time()
+    if not nonce or len(nonce) > 1024 or abs(now - timestamp) > tolerance:
+        logger.warning('Launch LTI com nonce ausente ou timestamp inválido/expirado. Confira o relógio do servidor.')
+        return False
+    digest = hashlib.sha256(json.dumps([key, nonce]).encode()).hexdigest()
+    LTILaunchNonce.objects.filter(expires_at__lte=timezone.now()).delete()
+    _, created = LTILaunchNonce.objects.get_or_create(
+        digest=digest,
+        defaults={'expires_at': datetime.fromtimestamp(timestamp + tolerance, datetime_timezone.utc)},
+    )
+    return created
 
 
 @csrf_exempt
@@ -350,7 +398,10 @@ def lti_grade_endpoint(request, course_id=None, exercise_id=None):
         return HttpResponse('Exercício não configurado no autograder.', status=400)
 
     aluno, _ = Aluno.objects.get_or_create(user_id=user_id)
-    submission = Submissao.objects.filter(aluno=aluno, exercise_id=exercise_id).first()
+    scope = lti_scope(params)
+    submission = get_submission(aluno, exercise_id, scope)
+    if submission and not is_form:
+        submission = remember_lti_context(submission, params)
     is_submission = is_form or 'custom_student_code' in request.POST
     if not is_submission:
         return _render_submission(
@@ -370,14 +421,20 @@ def lti_grade_endpoint(request, course_id=None, exercise_id=None):
     else:
         code = request.POST.get('custom_student_code', '')
         if 'code_file' in request.FILES:
+            if request.FILES['code_file'].size > 256 * 1024:
+                return HttpResponse('O arquivo Python deve ter no máximo 256 KiB.', status=413)
             try:
                 code = request.FILES['code_file'].read().decode('utf-8-sig')
             except UnicodeDecodeError:
                 return HttpResponse('O arquivo Python deve usar codificação UTF-8.', status=400)
+        if len(code.encode('utf-8')) > 256 * 1024:
+            return HttpResponse('O código Python deve ter no máximo 256 KiB.', status=413)
         if not code.strip():
             return HttpResponse('Envie um código Python para correção.', status=400)
         try:
             result = executar_avaliacao(code, exercise_id, catalog[exercise_id])
+            if not isinstance(result, dict):
+                raise ValueError('O avaliador não retornou um relatório.')
         except Exception:
             logger.exception('Falha no motor de avaliação para %s.', exercise_id)
             result = {
@@ -391,7 +448,11 @@ def lti_grade_endpoint(request, course_id=None, exercise_id=None):
                     request, params, token, code, result, submission, status=503,
                 )
             return HttpResponse(result.get('erro', 'Falha no corretor.'), status=503)
-        submission = save_submission(aluno, exercise_id, code, result)
+        try:
+            submission = save_submission(aluno, exercise_id, code, result, scope=scope, params=params)
+        except (ValueError, TypeError, KeyError):
+            logger.exception('O avaliador retornou uma nota inválida para %s.', exercise_id)
+            return HttpResponse('O corretor retornou um resultado inválido. Avise o professor.', status=503)
 
     passback_status = _passback(params, submission)
     if is_form:

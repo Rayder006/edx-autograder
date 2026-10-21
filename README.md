@@ -7,13 +7,19 @@ São 32 exercícios. As especificações ficam em `exercises/test_<id>.py`, divi
 ## Requisitos
 
 - Docker Engine ou Docker Desktop em execução.
-- Docker Compose v2, disponível como `docker compose`.
+- Docker Compose v2.28 ou superior, disponível como `docker compose` (não `docker-compose` v1).
 - Para executar diretamente no host: Python 3.13+ e `make`.
 - Para produção com Compose, Python e PostgreSQL são instalados nas imagens; não é necessário um ambiente virtual no servidor.
+
+Python 3.13 e Django 6.0.4 já eram usados antes da migração Pytest/PostgreSQL. O projeto não atualiza o Python do sistema nem depende dele no modo Compose. A imagem usa Debian Bookworm explicitamente para não acompanhar silenciosamente mudanças de distribuição. Não é possível garantir compatibilidade com qualquer Linux antigo: o kernel e o Docker da USP precisam suportar essas imagens e os limites de recursos usados pelo corretor.
+
+O wrapper verifica os recursos necessários do Compose antes de iniciar a instalação. A descoberta segura das variáveis usa `config --environment`, disponível a partir da série 2.28; se o plugin for antigo, atualize somente esse plugin com o administrador, sem substituir o Python da distribuição. A interpretação do `.env` é feita pelo Compose, não executada como script shell.
 
 ## Instalação em produção na USP
 
 Crie manualmente o arquivo `.env`, usando `.env.example` como referência. O projeto não gera esse arquivo automaticamente e falha se ele estiver ausente.
+
+Restrinja a leitura desse arquivo ao usuário do serviço, por exemplo com `chmod 600 .env`.
 
 Preencha pelo menos:
 
@@ -54,6 +60,10 @@ make prod-init
 
 O comando constrói a imagem, inicia o PostgreSQL, aplica as migrações, coleta os arquivos estáticos e inicia o Gunicorn. Aguarda banco e web ficarem saudáveis e executa uma correção de diagnóstico real em Docker. Uma falha nessas etapas interrompe o comando com erro.
 
+Execute com o usuário normal do serviço, **sem `sudo make`**. O Make usa `tools/compose.sh` para descobrir UID/GID, acrescentar apenas o grupo necessário para acessar o socket e criar a pasta temporária antes de montá-la. O processo web e os avaliadores não rodam como root; a instalação de pacotes como root ocorre somente durante a construção da imagem. O PostgreSQL oficial administra as permissões do próprio volume.
+
+Se uma instalação antiga deixou `/tmp/autograder` pertencendo ao root, escolha um novo diretório exclusivo e gravável em `AUTOGRADER_TMP_DIR_HOST`, em vez de tornar pastas públicas graváveis ou executar todo o projeto como root. Não altere dono/permissões de arquivos antigos sem conferir se contêm dados ou se há avaliações em andamento.
+
 Comandos úteis:
 
 ```bash
@@ -75,13 +85,31 @@ make prod-init ENV_FILE=/caminho/configuracao.env
 
 O servidor precisa de acesso ao socket do Docker para criar os containers de correção. O Compose já monta o socket e o diretório compartilhado. Se o Django rodar diretamente no Linux, o usuário do serviço precisa ter permissão para usar o Docker.
 
+Essa autorização deve ser feita uma vez pelo administrador da infraestrutura. Acesso ao grupo/socket Docker concede poderes equivalentes a root no host, mesmo com um processo web sem privilégios; não use `chmod 666` no socket. O fluxo fornecido presume um daemon Docker local, sem remapeamento de usuários. Docker remoto/rootless/user namespaces precisam de adaptação dos caminhos e UIDs pela infraestrutura.
+
+Para comandos Compose adicionais, prefira o mesmo wrapper, que também respeita `ENV_FILE`:
+
+```bash
+ENV_FILE=/caminho/configuracao.env sh tools/compose.sh ps
+```
+
+Se chamar `docker compose` diretamente, configure manualmente `AUTOGRADER_ENV_FILE`, `AUTOGRADER_WEB_UID`, `AUTOGRADER_WEB_GID` e `AUTOGRADER_DOCKER_GID` e prepare a pasta compartilhada. Os exemplos de importação abaixo usam o wrapper para evitar essa diferença.
+
 ### HTTPS e proxy reverso
 
 O navegador do aluno precisa alcançar o autograder. Se o EdX usa HTTPS, o iframe também precisa usar HTTPS. Configure TLS no proxy da infraestrutura, encaminhando para o serviço web na porta 8000.
 
 O proxy deve preservar o caminho e a query string, e informar corretamente `Host` (ou `X-Forwarded-Host`) e `X-Forwarded-Proto`. A assinatura OAuth depende da URL externa exata, incluindo protocolo e porta. Cabeçalhos encaminhados devem ser definidos pelo proxy confiável.
 
+O timeout do proxy deve comportar a correção síncrona e o callback (o Gunicorn usa 90 segundos). Não há fila assíncrona: dimensionamento para uma turma inteira submetendo ao mesmo tempo precisa ser validado à parte.
+
+Não permita acesso público que contorne esse proxy confiável; restrinja a porta web por firewall/rede conforme a infraestrutura. O proxy não deve acrescentar `X-Frame-Options: DENY/SAMEORIGIN` nem uma política `frame-ancestors` que bloqueie o domínio EdX. Para código de até 256 KiB, configure também um limite de upload no proxy que comporte o formulário completo.
+
+O callback sai do servidor para o endereço `lis_outcome_service_url` fornecido pelo launch assinado. Libere DNS e saída HTTPS para o LMS. A verificação TLS permanece ativa; CA institucional e proxy podem ser configurados por `REQUESTS_CA_BUNDLE`, `HTTPS_PROXY` e `NO_PROXY`. Se necessário, monte o arquivo da CA somente para leitura no serviço web. Não resolva erros de certificado desligando a verificação TLS.
+
 O endpoint de LTI permite iframe e dispensa cookies de terceiros: a sessão do formulário usa um token assinado com validade de uma hora. Ao expirar, o aluno deve reabrir o exercício no EdX.
+
+Launches exigem timestamp/nonce OAuth e não podem ser repetidos. O banco compartilha essa proteção entre workers e descarta nonces expirados; a tolerância é de 90 minutos, conforme o guia LTI 1.1. Mantenha os relógios do LMS e do servidor sincronizados. O token do formulário não reutiliza o nonce do launch para as submissões seguintes.
 
 ### Configuração no EdX Studio
 
@@ -98,6 +126,8 @@ https://DOMINIO-OU-IP/lti/avaliacao/?exercise=week_4_fatorial
 ```
 
 O launch precisa fornecer `user_id` e, para retorno da nota, `lis_outcome_service_url` e `lis_result_sourcedid`. O identificador de resultado é tratado como opaco e preservado no XML.
+
+Dependendo da versão do EdX Studio, a opção de notas pode aparecer como **This activity is graded / Graded**, em vez de **Accept Grades**. A unidade precisa estar em uma subseção avaliada para a nota contar no curso; confira também a aceitação de notas depois do prazo. Consulte a [documentação oficial do Open edX](https://docs.openedx.org/en/latest/educators/how-tos/course_development/exercise_tools/set_up_lti_1_1_component.html).
 
 As rotas antigas `/lti/introcomp2024/<exercicio>` continuam disponíveis com e sem barra final. Por exemplo, `/lti/introcomp2024/paridade`. Não é necessário trocar essas URLs para usar Pytest.
 
@@ -120,12 +150,14 @@ sqlite3 db.sqlite3 ".backup 'legacy-backup.sqlite3'"
 Depois de subir o PostgreSQL/web com o código novo, copie esse backup para o container:
 
 ```bash
-docker compose cp legacy-backup.sqlite3 web:/tmp/legacy-backup.sqlite3
-docker compose exec -T web python manage.py import_legacy_sqlite --source /tmp/legacy-backup.sqlite3 --dry-run
-docker compose exec -T web python manage.py import_legacy_sqlite --source /tmp/legacy-backup.sqlite3
+sh tools/compose.sh cp legacy-backup.sqlite3 web:/tmp/legacy-backup.sqlite3
+sh tools/compose.sh exec -T web python manage.py import_legacy_sqlite --source /tmp/legacy-backup.sqlite3 --dry-run
+sh tools/compose.sh exec -T web python manage.py import_legacy_sqlite --source /tmp/legacy-backup.sqlite3
 ```
 
 O primeiro comando de importação valida os dados e desfaz a transação; o segundo efetiva a importação. São preservados código, relatório, notas, tentativas disponíveis e datas. Essa operação importa os modelos do corretor, não usuários administrativos do Django. O backup original não é alterado. Se o destino já tiver alunos, a importação é recusada para impedir sobreposição de dados.
+
+As novas submissões são separadas por consumidor LTI, curso (`context_id`) e componente (`resource_link_id`), além de aluno/exercício. Registros antigos não continham esses identificadores: ficam preservados e são associados uma única vez ao primeiro contexto autenticado que reabrir aquele exercício para o aluno. Se o banco antigo reuniu vários cursos/componentes, não é possível reconstruir automaticamente a origem: confira essa associação antes de liberar acessos. A importação de um SQLite já atualizado conserva os contextos e estados de callback existentes.
 
 ## Desenvolvimento local
 
@@ -135,6 +167,8 @@ Sem `.env` e sem variáveis de banco, o Django usa SQLite. O Docker continua nec
 make init
 make start
 ```
+
+Se `python3` no Linux aponta a uma versão antiga, selecione explicitamente um Python 3.13+ já instalado: `make init HOST_PYTHON=python3.13`. O instalador falha sem anunciar sucesso caso esse interpretador ou o suporte a `venv` esteja ausente. Não substitua o Python da distribuição. Um ambiente virtual antigo deve ser preservado como backup e recriado com o interpretador correto; não o atualize com `sudo pip`.
 
 `make init` instala as dependências, prepara a imagem do corretor e aplica as migrações. `make start` atualiza a imagem, aplica migrações pendentes e inicia o servidor em `http://127.0.0.1:8000`.
 
@@ -195,11 +229,35 @@ O motor legado pode ser selecionado explicitamente com `AUTOGRADER_ENGINE=docker
 
 ## Notas, resultados e diagnóstico
 
-Cada aluno tem uma submissão por exercício, com o código/resultado mais recente, a maior nota e o total de tentativas. A interface distingue nota da tentativa e maior nota. O EdX recebe sempre a maior nota; atualizações concorrentes são serializadas para impedir regressão.
+Cada aluno tem uma submissão por exercício **e contexto LTI**, com o código/resultado mais recente, a maior nota e o total de tentativas. A interface distingue nota da tentativa e maior nota. O EdX recebe sempre a maior nota daquele contexto; atualizações concorrentes são serializadas para impedir regressão.
+
+O banco mantém também o destino de retorno (sem segredo nem assinatura OAuth), a confirmação/falha, a data da última tentativa e a última nota confirmada em escala 0–1. O relatório/código salvo corresponde à tentativa mais recente, não necessariamente à maior nota; não é um histórico completo de códigos/tentativas. A maior nota é preservada separadamente.
 
 Ao alcançar nota máxima, novas correções são bloqueadas. Se o retorno de nota falhar, a interface permite retransmitir a nota sem executar o código novamente nem contar outra tentativa. A nota local é preservada quando o EdX fica indisponível.
 
-`GET /health/` verifica o acesso ao banco. `make doctor` verifica banco e uma avaliação real em Docker sem criar alunos ou notas. Use `make prod-logs` para acompanhar erros.
+O administrador também pode recuperar retornos pendentes sem depender do token do navegador:
+
+```bash
+sh tools/compose.sh exec -T web python manage.py retry_lti_passbacks --dry-run
+sh tools/compose.sh exec -T web python manage.py retry_lti_passbacks --limit 100
+```
+
+Para Django no host, use os mesmos comandos com `venv/bin/python manage.py`. Não há fila/agendamento automático: execute novamente após resolver a indisponibilidade do LMS. A confirmação local registra a resposta recebida naquele momento, não consulta alterações posteriores feitas diretamente no EdX.
+
+`GET /health/` verifica o acesso ao banco. `make doctor` verifica banco, migrações pendentes e uma avaliação real em Docker com o motor configurado, sem criar alunos ou notas. Use `make prod-logs` para acompanhar erros. Conexões persistentes PostgreSQL são verificadas antes de serem reutilizadas após uma reinicialização do banco.
+
+No modo host, execute também `venv/bin/python manage.py check_autograder` antes de reiniciar/liberar o serviço. A aplicação não configura o serviço de boot da USP: o administrador deve manter o serviço existente ou configurar um gerenciador de processos. O Compose usa a política de reinício dos containers; o daemon Docker precisa iniciar com o sistema.
+
+`manage.py check --deploy` pode avisar sobre redirecionamento HTTPS e HSTS: neste modelo, essas políticas pertencem ao proxy TLS. Confira-as nesse proxy; não habilite redirecionamento interno cegamente, pois o healthcheck local usa HTTP.
+
+### Checklist para a infraestrutura
+
+- Backup consistente do banco e credenciais originais preservadas; migração/importação terminada antes de permitir alunos.
+- Usuário do serviço com acesso autorizado ao Docker, pasta compartilhada gravável e `make prod-init`/diagnóstico sem erros.
+- TLS válido, DNS/IP corretos, proxy preservando URL/cabeçalhos e iframe permitido no EdX.
+- Relógios sincronizados e saída HTTPS liberada para o callback; componente EdX configurado para receber notas.
+- Disco disponível para banco, logs e imagens. Monitore/rotacione logs; nunca remova volumes do PostgreSQL para liberar espaço sem backup.
+- Uma submissão real de homologação no EdX deve confirmar a nota na plataforma. Testes locais não validam firewall, TLS, prazos ou credenciais da USP.
 
 Logs detalhados de LTI ficam desligados. `LTI_DEBUG=1` os habilita durante uma investigação; desligue depois, pois contêm dados da integração. Os atalhos de diagnóstico de assinatura/nota ficam limitados ao modo de desenvolvimento.
 

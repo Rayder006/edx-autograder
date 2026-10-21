@@ -92,7 +92,7 @@ POSTGRES_USER = os.environ.get('POSTGRES_USER')
 if POSTGRES_DB or os.environ.get('DATABASE_URL'):
     if os.environ.get('DATABASE_URL'):
         DATABASES = {
-            'default': dj_database_url.config(conn_max_age=600)
+            'default': dj_database_url.config(conn_max_age=600, conn_health_checks=True)
         }
     else:
         DATABASES = {
@@ -104,6 +104,7 @@ if POSTGRES_DB or os.environ.get('DATABASE_URL'):
                 'HOST': os.environ.get('POSTGRES_HOST', 'localhost'),
                 'PORT': os.environ.get('POSTGRES_PORT', '5432'),
                 'CONN_MAX_AGE': 600,
+                'CONN_HEALTH_CHECKS': True,
             }
         }
 else:
@@ -151,7 +152,7 @@ USE_TZ = True
 # https://docs.djangoproject.com/en/6.0/howto/static-files/
 
 STATIC_URL = 'static/'
-STATIC_ROOT = BASE_DIR / 'staticfiles'
+STATIC_ROOT = Path(os.environ.get('DJANGO_STATIC_ROOT', BASE_DIR / 'staticfiles'))
 STORAGES = {
     'default': {'BACKEND': 'django.core.files.storage.FileSystemStorage'},
     'staticfiles': {'BACKEND': 'whitenoise.storage.CompressedManifestStaticFilesStorage'},
